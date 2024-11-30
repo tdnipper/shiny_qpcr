@@ -40,8 +40,9 @@ def server(input, output, session):
         dataframe = df()
         dct_results = pd.DataFrame()
         housekeeping = input.housekeeping()
-        groups = dataframe["Sample Name"].unique()
+        control = input.control()
         if dataframe is not None:
+            groups = dataframe['Sample Name'].unique()
             dataframe['id'] = dataframe[['Sample Name', 'Target Name']].agg('_'.join, axis=1)
             return dct_results
 
@@ -49,13 +50,20 @@ def server(input, output, session):
     # Update when df changes
     @reactive.event(df)   
     # Update housekeeping selectize options based on Target Name from df   
-    def update_selectize():
+    def update_selectize_housekeeping():
         dataframe = df()  # Call the reactive function to get the DataFrame
         if not dataframe.empty and "Target Name" in dataframe.columns:
             # Get unique target names
             target_names = sorted(dataframe["Target Name"].dropna().unique())
             # Update the choices in the selectize input
             ui.update_selectize("housekeeping", choices=target_names)
+    @reactive.Effect
+    @reactive.event(df)
+    def update_selectize_control():
+        dataframe = df()
+        if not dataframe.empty and "Sample Name" in dataframe.columns:
+            group_names = sorted(dataframe['Sample Name'].dropna().unique())
+            ui.update_selectize("control", choices=group_names)
 
     @output
     

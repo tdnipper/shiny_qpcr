@@ -5,11 +5,14 @@ from shiny import App, ui, render, reactive
 app_ui = ui.page_fluid(
     ui.input_file("file", "Upload Data File", accept=[".csv", ".xlsx"], multiple=False),
     ui.card(ui.output_data_frame("table")),
-    ui.input_selectize("housekeeping", "Select housekeeping gene:", choices=[])
+    ui.input_selectize("housekeeping", "Select housekeeping gene:", choices=[]),
+    ui.input_selectize("control", "Select control group:", choices=[]),
+    ui.card(ui.output_data_frame("ddct"))
 )
 
 # Server
 def server(input, output, session):
+    
     @reactive.calc
     def df():
         """ Read in a csv, xlsx, or xls file and return the dataframe for display and analysis."""
@@ -17,12 +20,30 @@ def server(input, output, session):
         if file_info is not None:
             file_path = file_info[0]["datapath"]
             if file_path.endswith(".csv"):
-                df = pd.read_csv(file_path)
+                df = pd.read_csv(file_path, na_values=["Undetermined", "NTC"]).reset_index().dropna()
             elif file_path.endswith(".xlsx"):
-                df = pd.read_excel(file_path)
+                df = pd.read_excel(file_path, na_values=["Undetermined", "NTC"]).reset_index().dropna()
             elif file_path.endswith(".xls"):
-                df = pd.read_excel(file_path)
+                df = pd.read_excel(file_path, na_values=["Undetermined", "NTC"]).reset_index().dropna()
             return df
+   
+    @reactive.calc
+    def mean():
+        dataframe = df()
+        if dataframe is not None:   
+            dataframe["mean"] = dataframe.groupby(["Sample Name", "Target Name"])["CT"].transform("mean")
+            return dataframe
+        
+    @reactive.calc
+    def ddCT():
+        """Calculate ddCT given table of CTs"""
+        dataframe = df()
+        dct_results = pd.DataFrame()
+        housekeeping = input.housekeeping()
+        groups = dataframe["Sample Name"].unique()
+        if dataframe is not None:
+            dataframe['id'] = dataframe[['Sample Name', 'Target Name']].agg('_'.join, axis=1)
+            return dct_results
 
     @reactive.Effect  
     # Update when df changes
@@ -35,11 +56,15 @@ def server(input, output, session):
             target_names = sorted(dataframe["Target Name"].dropna().unique())
             # Update the choices in the selectize input
             ui.update_selectize("housekeeping", choices=target_names)
-    
+
     @output
+    
     @render.data_frame
     def table():
         return df()
 
+    @render.data_frame
+    def ddct():
+        return ddCT()
 
 app = App(app_ui, server)

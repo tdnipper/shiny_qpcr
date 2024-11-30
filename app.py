@@ -42,7 +42,22 @@ def server(input, output, session):
             dataframe["mean"] = dataframe.groupby(["Sample Name", "Target Name"])["CT"].transform("mean")
             dataframe['id'] = dataframe[['Target Name', 'Sample Name']].agg('_'.join, axis=1)
             return dataframe
-        
+ 
+    @reactive.calc
+    def store_filtered_dfs():
+        old_df = mean()
+        if old_df is not None:
+            targets = [old_df['Target Name'].unique()]
+            groups = [old_df['Sample Name'].unique()]        
+            target_dict = {}
+            for target in targets:
+                target_dict[target] = filter_targets(old_df, target)
+            results = {}
+            for key, data in target_dict.items():
+                for group in groups:
+                    results[f'{key}_{group}'] = data[data['Sample Name'] == group]
+            return results       
+ 
     @reactive.calc
     def ddCT():
         """Calculate ddCT given table of CTs"""
@@ -77,21 +92,6 @@ def server(input, output, session):
         if not dataframe.empty and "Sample Name" in dataframe.columns:
             group_names = sorted(dataframe['Sample Name'].dropna().unique())
             ui.update_selectize("control", choices=group_names)
-
-    @reactive.calc
-    def store_filtered_dfs():
-        old_df = mean()
-        if old_df is not None:
-            targets = [old_df['Target Name'].unique()]
-            groups = [old_df['Sample Name'].unique()]        
-            target_dict = {}
-            for target in targets:
-                target_dict[target] = filter_targets(old_df, target)
-            results = {}
-            for key, data in target_dict.items():
-                for group in groups:
-                    results[f'{key}_{group}'] = data[data['Sample Name'] == group]
-            return results
 
     @output
     

@@ -12,11 +12,10 @@ app_ui = ui.page_fluid(
 
 # Server
 def calculate_ddct(results, gene, group, control_gene, control_group):
-    return(results[f'{gene}_{group}']['mean'].values - results[f'{control_gene}_{group}']['mean'].values) - (results[f'{gene}_{control_group}']['mean'].values - results[f'{control_gene}_{control_group}']['mean'].values) 
+    return((results[f'{gene}_{group}']['CT'].values - results[f'{control_gene}_{group}']['CT'].values) - (results[f'{gene}_{control_group}']['CT'].values - results[f'{control_gene}_{control_group}']['CT'].values)) 
 
 def filter_targets(df, target):
     filtered_df = df[df['Target Name'].str.contains(target)].copy()
-    filtered_df = filtered_df.drop(['CT', 'index'], axis=1).reset_index(drop=True).drop_duplicates()
     return filtered_df
 
 def server(input, output, session):
@@ -68,6 +67,7 @@ def server(input, output, session):
         if results is not None:
             groups = df['Sample Name'].unique()
             genes = df['Target Name'].unique()
+            # control_val = sum()
             ddct_results = {}
             for gene in genes:
                 for group in groups:

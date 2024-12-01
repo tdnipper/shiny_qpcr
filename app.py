@@ -5,18 +5,18 @@ from shiny import App, ui, render, reactive
 app_ui = ui.page_fluid(
     ui.input_file("file", "Upload Data File", accept=[".csv", ".xlsx"], multiple=False),
     ui.card(ui.output_data_frame("table")),
-    ui.input_selectize("housekeeping", "Select housekeeping gene:", choices=[]),
-    ui.input_selectize("control", "Select control group:", choices=[]),
+    ui.input_selectize("housekeeping", "Select housekeeping gene:", choices=[], selected='RNA18S1'),
+    ui.input_selectize("control", "Select control group:", choices=[], selected='mock'),
     ui.card(ui.output_data_frame("ddct"))
 )
 
 # Server
 def calculate_ddct(results, gene, group, control_gene, control_group):
-    return(
-        results[f'{gene}_{group}']['mean'].values - results[f'{control_gene}_{group}']['mean'].values) - (results[f'{gene}_{control_group}']['mean'].values - results[f'{control_gene}_{control_group}']['mean'].values) 
+    return(results[f'{gene}_{group}']['mean'].values - results[f'{control_gene}_{group}']['mean'].values) - (results[f'{gene}_{control_group}']['mean'].values - results[f'{control_gene}_{control_group}']['mean'].values) 
 
 def filter_targets(df, target):
     filtered_df = df[df['Target Name'].str.contains(target)].copy()
+    filtered_df = filtered_df.drop(['CT', 'index'], axis=1).reset_index(drop=True).drop_duplicates()
     return filtered_df
 
 def server(input, output, session):
@@ -47,8 +47,8 @@ def server(input, output, session):
     def store_filtered_dfs():
         old_df = mean()
         if old_df is not None:
-            targets = [old_df['Target Name'].unique()]
-            groups = [old_df['Sample Name'].unique()]        
+            targets = old_df['Target Name'].unique()
+            groups = old_df['Sample Name'].unique()  
             target_dict = {}
             for target in targets:
                 target_dict[target] = filter_targets(old_df, target)
@@ -63,7 +63,7 @@ def server(input, output, session):
         """Calculate ddCT given table of CTs"""
         results = store_filtered_dfs()
         df = mean()
-        housekeeping = input.housekeeping()
+        housekeeping = input.housekeeping() 
         control = input.control()
         if results is not None:
             groups = df['Sample Name'].unique()
@@ -73,6 +73,15 @@ def server(input, output, session):
                 for group in groups:
                     ddct_results[f'{gene}_{group}'] = calculate_ddct(results, gene, group=group, control_gene=housekeeping, control_group=control)
             return ddct_results
+
+    @reactive.calc
+    def ddct_dfs():
+        results = ddCT()
+        ddct_df = pd.DataFrame()
+        if results is not None:
+            for key, result in results.items():
+                ddct_df[key] = result
+            return ddct_df.melt()
 
     @reactive.Effect  
     # Update when df changes
@@ -99,8 +108,8 @@ def server(input, output, session):
     def table():
         return mean()
 
-    # @render.text
-    # def ddct():
-    #     return ddCT()
+    @render.data_frame
+    def ddct():
+        return ddct_dfs()
 
 app = App(app_ui, server)

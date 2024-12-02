@@ -71,17 +71,22 @@ def server(input, output, session):
             ddct_results = {}
             for gene in genes:
                 for group in groups:
-                    ddct_results[f'{gene}_{group}'] = calculate_ddct(results, gene, group=group, control_gene=housekeeping, control_group=control)
-            return ddct_results
+                    results[f'{gene}_{group}']['ddct'] = calculate_ddct(results, gene, group=group, control_gene=housekeeping, control_group=control)
+            return results
 
     @reactive.calc
     def ddct_dfs():
         results = ddCT()
-        ddct_df = pd.DataFrame()
+        ddct_df_list = []
         if results is not None:
             for key, result in results.items():
-                ddct_df[key] = result
-            return ddct_df.melt()
+                ddct_df_list.append(result)
+            ddct_df = pd.concat(ddct_df_list)
+            return ddct_df
+        
+    # @reactive.cal
+    # def log2fc():
+
 
     @reactive.Effect  
     # Update when df changes
@@ -93,14 +98,15 @@ def server(input, output, session):
             # Get unique target names
             target_names = sorted(dataframe["Target Name"].dropna().unique())
             # Update the choices in the selectize input
-            ui.update_selectize("housekeeping", choices=target_names)
+            ui.update_selectize("housekeeping", choices=target_names, selected='RNA18S1')
+            
     @reactive.Effect
     @reactive.event(df)
     def update_selectize_control():
         dataframe = df()
         if not dataframe.empty and "Sample Name" in dataframe.columns:
             group_names = sorted(dataframe['Sample Name'].dropna().unique())
-            ui.update_selectize("control", choices=group_names)
+            ui.update_selectize("control", choices=group_names, selected='mock')
 
     @output
     

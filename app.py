@@ -84,8 +84,12 @@ def server(input, output, session):
             ddct_df = pd.concat(ddct_df_list)
             return ddct_df
         
-    # @reactive.cal
-    # def log2fc():
+    @reactive.calc
+    def log2fc():
+        if ddct_dfs() is not None:
+            data = ddct_dfs()
+            data['log2fc'] = 2**-data['ddct']
+            return data
 
 
     @reactive.Effect  
@@ -116,6 +120,6 @@ def server(input, output, session):
 
     @render.data_frame
     def ddct():
-        return ddct_dfs()
+        return log2fc()
 
 app = App(app_ui, server)

@@ -166,8 +166,8 @@ def server(input, output, session):
 
     @render_widget
     def log2fc_plot():
-        if log2fc is not None:
-            data = log2fc()
+        data = log2fc()
+        if log2fc() is not None:
             plot = px.bar(data, x="id", y="log2fc_mean", color="Target Name", error_y='log2fc_std')
             return plot
 

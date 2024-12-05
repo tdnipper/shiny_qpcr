@@ -1,7 +1,8 @@
 import pandas as pd
 from shiny import App, ui, render, reactive
 from shinywidgets import render_widget, output_widget
-import plotly.graph_objects as go
+
+# import plotly.graph_objects as go
 import plotly.express as px
 
 # UI
@@ -13,19 +14,35 @@ app_ui = ui.page_fluid(
     ),
     ui.input_selectize("control", "Select control group:", choices=[], selected="mock"),
     ui.card(ui.output_data_frame("ddct")),
-    output_widget("log2fc_plot"),
+    # output_widget("log2fc_plot"),
+    # output_widget("create_plots")
 )
 
 
-# Server
+# Functions to be used in server calcs
+# def calculate_ddct(results, gene, group, control_gene, control_group):
+#     return (
+#         results[f"{gene}_{group}"]["CT"].values
+#         - results[f"{control_gene}_{group}"]["CT"].values
+#     ) - (
+#         results[f"{gene}_{control_group}"]["CT"].values
+#         - results[f"{control_gene}_{control_group}"]["CT"].values
+#     )
+
 def calculate_ddct(results, gene, group, control_gene, control_group):
-    return (
-        results[f"{gene}_{group}"]["CT"].values
-        - results[f"{control_gene}_{group}"]["CT"].values
-    ) - (
-        results[f"{gene}_{control_group}"]["CT"].values
-        - results[f"{control_gene}_{control_group}"]["CT"].values
-    )
+    try:
+        if gene == control_gene and group == control_group:
+            # Simplified calculation since the comparison is self-referential
+            return 0
+
+        gene_group_ct = results[f"{gene}_{group}"]["CT"].values
+        control_gene_group_ct = results[f"{control_gene}_{group}"]["CT"].values
+        gene_control_group_ct = results[f"{gene}_{control_group}"]["CT"].values
+        control_gene_control_group_ct = results[f"{control_gene}_{control_group}"]["CT"].values
+    except KeyError as e:
+        raise KeyError(f"Missing key in results: {e}. Check if all input values exist in the data.")
+
+    return (gene_group_ct - control_gene_group_ct) - (gene_control_group_ct - control_gene_control_group_ct)
 
 
 def filter_targets(df, target):
@@ -33,6 +50,7 @@ def filter_targets(df, target):
     return filtered_df
 
 
+# Server
 def server(input, output, session):
 
     @reactive.calc
@@ -44,19 +62,19 @@ def server(input, output, session):
             if file_path.endswith(".csv"):
                 df = (
                     pd.read_csv(file_path, na_values=["Undetermined", "NTC"])
-                    .reset_index()
+                    .reset_index(drop=True)
                     .dropna()
                 )
             elif file_path.endswith(".xlsx"):
                 df = (
                     pd.read_excel(file_path, na_values=["Undetermined", "NTC"])
-                    .reset_index()
+                    .reset_index(drop=True)
                     .dropna()
                 )
             elif file_path.endswith(".xls"):
                 df = (
                     pd.read_excel(file_path, na_values=["Undetermined", "NTC"])
-                    .reset_index()
+                    .reset_index(drop=True)
                     .dropna()
                 )
             return df
@@ -67,21 +85,19 @@ def server(input, output, session):
         if dataframe is not None:
             dataframe["mean"] = dataframe.groupby(["Sample Name", "Target Name"])[
                 "CT"
-            ].transform("mean")
-            dataframe["id"] = dataframe[["Target Name", "Sample Name"]].agg(
-                "_".join, axis=1
-            )
+            ].transform("mean").reset_index(drop=True)
+            dataframe["id"] = dataframe["Target Name"] + "_" + dataframe["Sample Name"]
             return dataframe
 
     @reactive.calc
     def store_filtered_dfs():
         old_df = mean()
         if old_df is not None:
-            targets = old_df["Target Name"].unique()
-            groups = old_df["Sample Name"].unique()
+            genes = old_df["Target Name"].unique().tolist()
+            groups = old_df["Sample Name"].unique().tolist()
             target_dict = {}
-            for target in targets:
-                target_dict[target] = filter_targets(old_df, target)
+            for gene in genes:
+                target_dict[gene] = filter_targets(old_df, gene).reset_index(drop=True)
             results = {}
             for key, data in target_dict.items():
                 for group in groups:
@@ -93,18 +109,17 @@ def server(input, output, session):
         """Calculate ddCT given table of CTs"""
         results = store_filtered_dfs()
         df = mean()
-        housekeeping = input.housekeeping()
-        control = input.control()
+
         if results is not None:
-            groups = df["Sample Name"].unique()
-            genes = df["Target Name"].unique()
-            # control_val = sum()
-            ddct_results = {}
+            groups = df["Sample Name"].unique().tolist()
+            genes = df["Target Name"].unique().tolist()
+            housekeeping = input.housekeeping()
+            control = input.control()
             for gene in genes:
                 for group in groups:
                     results[f"{gene}_{group}"]["ddct"] = calculate_ddct(
-                        results,
-                        gene,
+                        results=results,
+                        gene=gene,
                         group=group,
                         control_gene=housekeeping,
                         control_group=control,
@@ -126,12 +141,25 @@ def server(input, output, session):
         if ddct_dfs() is not None:
             data = ddct_dfs()
             data["log2fc"] = 2 ** -data["ddct"]
-            data["log2fc_mean"] = data.groupby(["Sample Name", "Target Name"])["log2fc"].transform("mean")
-            data["log2fc_std"] = data.groupby(["Sample Name", "Target Name"])["log2fc"].transform("std")
-            data["ddct_mean"] = data.groupby(["Sample Name", "Target Name"])["ddct"].transform("mean")
-            data["ddct_std"] = data.groupby(["Sample Name", "Target Name"])["ddct"].transform("std")
+            data["log2fc_mean"] = data.groupby(["Sample Name", "Target Name"])[
+                "log2fc"
+            ].transform("mean")
+            data["log2fc_std"] = data.groupby(["Sample Name", "Target Name"])[
+                "log2fc"
+            ].transform("std")
+            data["ddct_mean"] = data.groupby(["Sample Name", "Target Name"])[
+                "ddct"
+            ].transform("mean")
+            data["ddct_std"] = data.groupby(["Sample Name", "Target Name"])[
+                "ddct"
+            ].transform("std")
 
-            new_data = data.drop(["CT", "index", "ddct", "log2fc"], axis=1).reset_index(drop=True).drop_duplicates()
+            new_data = (
+                data.drop(["CT", "ddct", "log2fc"], axis=1)
+                .reset_index(drop=True)
+                .drop_duplicates()
+                .reset_index(drop=True)
+            )
             return new_data
 
     @reactive.Effect
@@ -150,12 +178,14 @@ def server(input, output, session):
 
     @reactive.Effect
     @reactive.event(df)
+    # Update control group selectize options based on Sample Name from df
     def update_selectize_control():
         dataframe = df()
         if not dataframe.empty and "Sample Name" in dataframe.columns:
             group_names = sorted(dataframe["Sample Name"].dropna().unique())
             ui.update_selectize("control", choices=group_names, selected="mock")
 
+    # Rendering
     @render.data_frame
     def table():
         return mean()
@@ -168,8 +198,10 @@ def server(input, output, session):
     def log2fc_plot():
         data = log2fc()
         if log2fc() is not None:
-            plot = px.bar(data, x="id", y="log2fc_mean", color="Target Name", error_y='log2fc_std')
-            return plot
+            plot = px.bar(
+                data, x="id", y="log2fc_mean", color="Target Name", error_y="log2fc_std"
+            )
+            return plot    
 
 
 app = App(app_ui, server)

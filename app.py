@@ -14,20 +14,12 @@ app_ui = ui.page_fluid(
     ),
     ui.input_selectize("control", "Select control group:", choices=[], selected="mock"),
     ui.card(ui.output_data_frame("ddct")),
-    # output_widget("log2fc_plot"),
-    # output_widget("create_plots")
+    ui.input_selectize("plot_groups", "Select groups to plot:", choices=[], multiple=True),
+    ui.card(output_widget("log2fc_plot"))
 )
 
 
 # Functions to be used in server calcs
-# def calculate_ddct(results, gene, group, control_gene, control_group):
-#     return (
-#         results[f"{gene}_{group}"]["CT"].values
-#         - results[f"{control_gene}_{group}"]["CT"].values
-#     ) - (
-#         results[f"{gene}_{control_group}"]["CT"].values
-#         - results[f"{control_gene}_{control_group}"]["CT"].values
-#     )
 
 def calculate_ddct(results, gene, group, control_gene, control_group):
     try:
@@ -91,17 +83,20 @@ def server(input, output, session):
 
     @reactive.calc
     def store_filtered_dfs():
+        """Filter a df by gene and group into a dict of dfs with key as 'gene_group'."""
         old_df = mean()
+        target_dict = {}
+        results = {}
         if old_df is not None:
             genes = old_df["Target Name"].unique().tolist()
             groups = old_df["Sample Name"].unique().tolist()
-            target_dict = {}
+            # Sort results by gene in target_dict
             for gene in genes:
                 target_dict[gene] = filter_targets(old_df, gene).reset_index(drop=True)
-            results = {}
-            for key, data in target_dict.items():
+            # Sort gene dfs by group in results dict
+            for target, data in target_dict.items():
                 for group in groups:
-                    results[f"{key}_{group}"] = data[data["Sample Name"] == group]
+                    results[f"{target}_{group}"] = data[data["Sample Name"] == group]
             return results
 
     @reactive.calc
@@ -110,7 +105,7 @@ def server(input, output, session):
         results = store_filtered_dfs()
         df = mean()
 
-        if results is not None:
+        if results is not None and df is not None:
             groups = df["Sample Name"].unique().tolist()
             genes = df["Target Name"].unique().tolist()
             housekeeping = input.housekeeping()
@@ -161,6 +156,18 @@ def server(input, output, session):
                 .reset_index(drop=True)
             )
             return new_data
+    
+    @reactive.calc
+    def select_for_plot():
+        data = log2fc()
+        groups = list(input.plot_groups())
+        if data is not None:
+            new_data_list = []
+            for group in groups:
+                data_sub = filter_targets(data, group)
+                new_data_list.append(data_sub)
+            new_data = pd.concat(new_data_list, axis=0)
+            return new_data
 
     @reactive.Effect
     # Update when df changes
@@ -185,6 +192,14 @@ def server(input, output, session):
             group_names = sorted(dataframe["Sample Name"].dropna().unique())
             ui.update_selectize("control", choices=group_names, selected="mock")
 
+    @reactive.Effect
+    @reactive.event(mean)
+    def update_selectize_plot_groups():
+        dataframe = mean()
+        if dataframe is not None and not dataframe.empty:
+            group_names = dataframe["Target Name"].unique().tolist()
+            ui.update_selectize("plot_groups", choices=group_names, selected=group_names[1] if group_names else None)
+
     # Rendering
     @render.data_frame
     def table():
@@ -196,8 +211,8 @@ def server(input, output, session):
 
     @render_widget
     def log2fc_plot():
-        data = log2fc()
-        if log2fc() is not None:
+        data = select_for_plot()
+        if select_for_plot() is not None:
             plot = px.bar(
                 data, x="id", y="log2fc_mean", color="Target Name", error_y="log2fc_std"
             )

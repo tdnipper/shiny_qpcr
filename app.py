@@ -15,7 +15,7 @@ app_ui = ui.page_fluid(
     ui.input_selectize("control", "Select control group:", choices=[], selected="mock"),
     ui.card(ui.output_data_frame("ddct")),
     ui.input_selectize("plot_groups", "Select groups to plot:", choices=[], multiple=True),
-    ui.card(output_widget("log2fc_plot"))
+    ui.card(output_widget("foldchange_plot"))
 )
 
 
@@ -132,15 +132,15 @@ def server(input, output, session):
             return ddct_df
 
     @reactive.calc
-    def log2fc():
+    def foldchange():
         if ddct_dfs() is not None:
             data = ddct_dfs()
-            data["log2fc"] = 2 ** -data["ddct"]
-            data["log2fc_mean"] = data.groupby(["Sample Name", "Target Name"])[
-                "log2fc"
+            data["foldchange"] = 2 ** -data["ddct"]
+            data["foldchange_mean"] = data.groupby(["Sample Name", "Target Name"])[
+                "foldchange"
             ].transform("mean")
-            data["log2fc_std"] = data.groupby(["Sample Name", "Target Name"])[
-                "log2fc"
+            data["foldchange_std"] = data.groupby(["Sample Name", "Target Name"])[
+                "foldchange"
             ].transform("std")
             data["ddct_mean"] = data.groupby(["Sample Name", "Target Name"])[
                 "ddct"
@@ -150,7 +150,7 @@ def server(input, output, session):
             ].transform("std")
 
             new_data = (
-                data.drop(["CT", "ddct", "log2fc"], axis=1)
+                data.drop(["CT", "ddct", "foldchange"], axis=1)
                 .reset_index(drop=True)
                 .drop_duplicates()
                 .reset_index(drop=True)
@@ -159,7 +159,7 @@ def server(input, output, session):
     
     @reactive.calc
     def select_for_plot():
-        data = log2fc()
+        data = foldchange()
         groups = list(input.plot_groups())
         if data is not None:
             new_data_list = []
@@ -207,14 +207,14 @@ def server(input, output, session):
 
     @render.data_frame
     def ddct():
-        return log2fc()
+        return foldchange()
 
     @render_widget
-    def log2fc_plot():
+    def foldchange_plot():
         data = select_for_plot()
         if select_for_plot() is not None:
             plot = px.bar(
-                data, x="id", y="log2fc_mean", color="Target Name", error_y="log2fc_std"
+                data, x="id", y="foldchange_mean", color="Target Name", error_y="foldchange_std"
             )
             return plot    
 

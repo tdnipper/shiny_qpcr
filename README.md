@@ -9,7 +9,7 @@ This app is designed to take qPCR CT data and return a downloadable dataframe of
 ## Input data
 
 Input should be formatted in a .csv, .xls, or .xlsx file as:
-| Sample (Group) Name | Target (Gene) Name | CT |
+| Sample Name | Target Name | CT |
 | ------------------- | ------------------ | ---|
 | Group 1 | Gene 1 | 20 |
 

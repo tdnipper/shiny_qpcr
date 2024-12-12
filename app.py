@@ -1,6 +1,7 @@
 import pandas as pd
 from shiny import App, ui, render, reactive
 from shinywidgets import render_widget, output_widget
+import io
 
 # import plotly.graph_objects as go
 import plotly.express as px
@@ -14,6 +15,7 @@ app_ui = ui.page_fluid(
     ),
     ui.input_selectize("control", "Select control group:", choices=[], selected="mock"),
     ui.card(ui.output_data_frame("ddct")),
+    ui.download_button("ddct_data_download", "Download ddCT data"),
     ui.input_selectize("plot_groups", "Select groups to plot:", choices=[], multiple=True),
     ui.card(output_widget("foldchange_plot"))
 )
@@ -146,6 +148,14 @@ def server(input, output, session):
                 .reset_index(drop=True)
             )
             return new_data
+    
+    @render.download(filename = 'ddCT_data.xlsx')
+    def ddct_data_download():
+        if foldchange() is not None:
+            data = foldchange()
+            with io.BytesIO() as buf:
+                data.to_excel(buf)
+                yield buf.getvalue()
     
     @reactive.calc
     def select_for_plot():

@@ -21,6 +21,13 @@ app_ui = ui.page_fluid(
 
 # Functions to be used in server calcs
 
+def import_file(file):
+    if file.endswith(".csv"):
+        df = pd.read_csv(file, na_values=["Undetermined", "NTC"]).dropna().reset_index(drop=True)
+    elif (file.endswith(".xls") or file.endswith(".xlsx")):
+        df = pd.read_excel(file, na_values=["Undetermined", "NTC"]).dropna().reset_index(drop=True)
+    return df
+
 def calculate_ddct(results, gene, group, control_gene, control_group):
     try:
         if gene == control_gene and group == control_group:
@@ -51,24 +58,7 @@ def server(input, output, session):
         file_info = input.file()
         if file_info is not None:
             file_path = file_info[0]["datapath"]
-            if file_path.endswith(".csv"):
-                df = (
-                    pd.read_csv(file_path, na_values=["Undetermined", "NTC"])
-                    .reset_index(drop=True)
-                    .dropna()
-                )
-            elif file_path.endswith(".xlsx"):
-                df = (
-                    pd.read_excel(file_path, na_values=["Undetermined", "NTC"])
-                    .reset_index(drop=True)
-                    .dropna()
-                )
-            elif file_path.endswith(".xls"):
-                df = (
-                    pd.read_excel(file_path, na_values=["Undetermined", "NTC"])
-                    .reset_index(drop=True)
-                    .dropna()
-                )
+            df = import_file(file_path)
             return df
 
     @reactive.calc

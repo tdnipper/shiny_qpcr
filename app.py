@@ -38,12 +38,13 @@ def calculate_ddct(results, gene, group, control_gene, control_group):
 
         gene_group_ct = results[f"{gene}_{group}"]["CT"].values
         control_gene_group_ct = results[f"{control_gene}_{group}"]["CT"].values
+        control_gene_group_ct_mean = control_gene_group_ct.mean()
         gene_control_group_ct = results[f"{gene}_{control_group}"]["CT"].values
         control_gene_control_group_ct = results[f"{control_gene}_{control_group}"]["CT"].values
     except KeyError as e:
         raise KeyError(f"Missing key in results: {e}. Check if all input values exist in the data.")
 
-    return (gene_group_ct - control_gene_group_ct) - (gene_control_group_ct - control_gene_control_group_ct)
+    return (gene_group_ct - control_gene_group_ct_mean) - (gene_control_group_ct - control_gene_control_group_ct)
 
 
 def filter_targets(df, target):

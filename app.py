@@ -2,6 +2,7 @@ import pandas as pd
 from shiny import App, ui, render, reactive
 from shinywidgets import render_widget, output_widget
 import io
+import numpy as np
 
 # import plotly.graph_objects as go
 import plotly.express as px
@@ -125,29 +126,31 @@ def server(input, output, session):
 
     @reactive.calc
     def foldchange():
-        if ddct_dfs() is not None:
-            data = ddct_dfs()
-            data["foldchange"] = 2 ** -data["ddct"]
-            data["foldchange_mean"] = data.groupby(["Sample Name", "Target Name"])[
-                "foldchange"
-            ].transform("mean")
-            data["foldchange_std"] = data.groupby(["Sample Name", "Target Name"])[
-                "foldchange"
-            ].transform("std")
-            data["ddct_mean"] = data.groupby(["Sample Name", "Target Name"])[
-                "ddct"
-            ].transform("mean")
-            data["ddct_std"] = data.groupby(["Sample Name", "Target Name"])[
-                "ddct"
-            ].transform("std")
+        """Calculate mean fold‑change and its propagated error (standard error)."""
+        df_dd = ddct_dfs()
+        if df_dd is None:
+            return None
 
-            new_data = (
-                data.drop(["CT", "ddct", "foldchange"], axis=1)
-                .reset_index(drop=True)
-                .drop_duplicates()
-                .reset_index(drop=True)
-            )
-            return new_data
+        # 1) summarize ΔΔCt per Sample+Target
+        stats = (
+            df_dd
+            .groupby(["Sample Name", "Target Name", "id"])["ddct"]
+            .agg(['mean', 'std', 'count'])
+            .reset_index()
+            .rename(columns={
+                'mean': 'ddct_mean',
+                'std':  'ddct_std',
+                'count':'n_reps'
+            })
+        )
+        # 2) SEM of ΔΔCt
+        stats['ddct_sem'] = stats['ddct_std'] / np.sqrt(stats['n_reps'])
+
+        # 3) fold‑change and its error via delta‑method:
+        stats['foldchange_mean'] = 2 ** -stats['ddct_mean']
+        stats['foldchange_se']   = np.log(2) * stats['foldchange_mean'] * stats['ddct_sem']
+
+        return stats
     
     @render.download(filename = 'ddCT_data.xlsx')
     def ddct_data_download():
@@ -212,11 +215,21 @@ def server(input, output, session):
     @render_widget
     def foldchange_plot():
         data = select_for_plot()
-        if select_for_plot() is not None:
+        if data is not None and not data.empty:
+            # use propagated SE instead of raw SD
             plot = px.bar(
-                data, x="id", y="foldchange_mean", color="Target Name", error_y="foldchange_std"
+                data,
+                x="id",
+                y="foldchange_mean",
+                color="Target Name",
+                error_y="foldchange_se",
+                labels={
+                    "foldchange_mean": "Fold Change (mean ± SE)",
+                    "id": "Sample"
+                },
+                title="Relative Expression (2⁻ΔΔCt) with Propagated Error"
             )
-            return plot    
+            return plot
 
 
 app = App(app_ui, server)

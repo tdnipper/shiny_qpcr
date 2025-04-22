@@ -35,17 +35,49 @@ def calculate_ddct(results, gene, group, control_gene, control_group):
     try:
         if gene == control_gene and group == control_group:
             # Simplified calculation since the comparison is self-referential
-            return 0
+            return 0, 0  # ddCT and its propagated error
 
+        # Retrieve CT values and SEMs
+        # Experimental gene and group
         gene_group_ct = results[f"{gene}_{group}"]["CT"].values
+        gene_group_ct_sem = np.std(gene_group_ct) / np.sqrt(len(gene_group_ct))
+        # Control gene and experimental group
         control_gene_group_ct = results[f"{control_gene}_{group}"]["CT"].values
         control_gene_group_ct_mean = np.mean(control_gene_group_ct)
+        control_gene_group_ct_sem = np.std(control_gene_group_ct) / np.sqrt(len(control_gene_group_ct))
+        # Experimental gene and control group
         gene_control_group_ct = results[f"{gene}_{control_group}"]["CT"].values
+        gene_control_group_ct_sem = np.std(gene_control_group_ct) / np.sqrt(len(gene_control_group_ct))
+        # Control gene and control group
         control_gene_control_group_ct = results[f"{control_gene}_{control_group}"]["CT"].values
+        control_gene_control_group_ct_mean = np.mean(control_gene_control_group_ct)
+        control_gene_control_group_ct_sem = np.std(control_gene_control_group_ct) / np.sqrt(len(control_gene_control_group_ct))
     except KeyError as e:
         raise KeyError(f"Missing key in results: {e}. Check if all input values exist in the data.")
 
-    return (gene_group_ct - control_gene_group_ct_mean) - (gene_control_group_ct - control_gene_control_group_ct)
+    # Calculate ddCT
+    ddct = (gene_group_ct - control_gene_group_ct_mean) - (gene_control_group_ct - control_gene_control_group_ct_mean)
+
+    # Propagate the error
+    # ddCT error = sqrt((SEM1^2 + SEM2^2) + (SEM3^2 + SEM4^2))
+    # where SEM1 and SEM2 are the SEMs of the experimental gene and control gene in the experimental group,
+    # and SEM3 and SEM4 are the SEMs of the experimental gene and control gene in the control group
+    sem_dct_sample = np.sqrt(
+        gene_group_ct_sem**2 +
+        control_gene_group_ct_sem**2
+    )
+
+    sem_dct_control = np.sqrt(
+        gene_control_group_ct_sem**2 +
+        control_gene_control_group_ct_sem**2
+    )
+    # Calculate the propagated error
+    ddct_error = np.sqrt(
+        sem_dct_sample**2 +
+        sem_dct_control**2
+    )
+
+    return ddct, ddct_error
 
 
 def filter_targets(df, target):
@@ -106,7 +138,7 @@ def server(input, output, session):
             control = input.control()
             for gene in genes:
                 for group in groups:
-                    results[f"{gene}_{group}"]["ddct"] = calculate_ddct(
+                    results[f"{gene}_{group}"]["ddct"], results[f"{gene}_{group}"]["ddct_error"] = calculate_ddct(
                         results=results,
                         gene=gene,
                         group=group,
@@ -132,24 +164,20 @@ def server(input, output, session):
         if df_dd is None:
             return None
 
-        # 1) summarize ΔΔCt per Sample+Target
+        #1) summarize ΔΔCt per Sample+Target
         stats = (
             df_dd
-            .groupby(["Sample Name", "Target Name", "id"])["ddct"]
-            .agg(['mean', 'std', 'count'])
+            .groupby(["Sample Name", "Target Name", "id"])
+            .agg(
+                ddct_mean=("ddct", "mean"),
+                # Propagated error of ddCT 
+                ddct_error=("ddct_error", lambda x: np.sqrt(np.sum(x**2))),            )
             .reset_index()
-            .rename(columns={
-                'mean': 'ddct_mean',
-                'std':  'ddct_std',
-                'count':'n_reps'
-            })
         )
-        # 2) SEM of ΔΔCt
-        stats['ddct_sem'] = stats['ddct_std'] / np.sqrt(stats['n_reps'])
 
-        # 3) fold‑change and its error via delta‑method:
+        # 2) fold‑change and its error via delta‑method:
         stats['foldchange_mean'] = 2 ** -stats['ddct_mean']
-        stats['foldchange_se']   = np.log(2) * stats['foldchange_mean'] * stats['ddct_sem']
+        stats['foldchange_se']   = np.log(2) * stats['foldchange_mean'] * stats['ddct_error']
 
         return stats
     

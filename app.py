@@ -40,42 +40,43 @@ def calculate_ddct(results, gene, group, control_gene, control_group):
         # Retrieve CT values and SEMs
         # Experimental gene and group
         gene_group_ct = results[f"{gene}_{group}"]["CT"].values
-        gene_group_ct_sem = np.std(gene_group_ct) / np.sqrt(len(gene_group_ct))
+        # gene_group_ct_sem = np.std(gene_group_ct) / np.sqrt(len(gene_group_ct))
         # Control gene and experimental group
         control_gene_group_ct = results[f"{control_gene}_{group}"]["CT"].values
-        control_gene_group_ct_mean = np.mean(control_gene_group_ct)
-        control_gene_group_ct_sem = np.std(control_gene_group_ct) / np.sqrt(len(control_gene_group_ct))
+        # control_gene_group_ct_sem = np.std(control_gene_group_ct) / np.sqrt(len(control_gene_group_ct))
         # Experimental gene and control group
         gene_control_group_ct = results[f"{gene}_{control_group}"]["CT"].values
         gene_control_group_ct_sem = np.std(gene_control_group_ct) / np.sqrt(len(gene_control_group_ct))
         # Control gene and control group
         control_gene_control_group_ct = results[f"{control_gene}_{control_group}"]["CT"].values
-        control_gene_control_group_ct_mean = np.mean(control_gene_control_group_ct)
+        # control_gene_control_group_ct_mean = np.mean(control_gene_control_group_ct)
         control_gene_control_group_ct_sem = np.std(control_gene_control_group_ct) / np.sqrt(len(control_gene_control_group_ct))
     except KeyError as e:
         raise KeyError(f"Missing key in results: {e}. Check if all input values exist in the data.")
 
     # Calculate ddCT
-    ddct = (gene_group_ct - control_gene_group_ct_mean) - (gene_control_group_ct - control_gene_control_group_ct_mean)
+    dct_control_average = np.mean(gene_control_group_ct - control_gene_control_group_ct)
+    dct_control_average_sem = np.sqrt(gene_control_group_ct_sem**2 + control_gene_control_group_ct_sem**2)
+
+    # ddct = (gene_group_ct - control_gene_group_ct) - (gene_control_group_ct - control_gene_control_group_ct_mean)
+    ddct = (gene_group_ct - control_gene_group_ct) - dct_control_average
 
     # Propagate the error
-    # ddCT error = sqrt((SEM1^2 + SEM2^2) + (SEM3^2 + SEM4^2))
-    # where SEM1 and SEM2 are the SEMs of the experimental gene and control gene in the experimental group,
-    # and SEM3 and SEM4 are the SEMs of the experimental gene and control gene in the control group
-    sem_dct_sample = np.sqrt(
-        gene_group_ct_sem**2 +
-        control_gene_group_ct_sem**2
-    )
+    # sem_dct_sample = np.sqrt(
+    #     gene_group_ct_sem**2 +
+    #     control_gene_group_ct_sem**2
+    # )
 
-    sem_dct_control = np.sqrt(
-        gene_control_group_ct_sem**2 +
-        control_gene_control_group_ct_sem**2
-    )
+    # sem_dct_control = np.sqrt(
+    #     gene_control_group_ct_sem**2 +
+    #     control_gene_control_group_ct_sem**2
+    # )
     # Calculate the propagated error
-    ddct_error = np.sqrt(
-        sem_dct_sample**2 +
-        sem_dct_control**2
-    )
+    # ddct_error = np.sqrt(
+    #     sem_dct_sample**2
+    #     sem_dct_control**2
+    # )
+    ddct_error = dct_control_average_sem
 
     return ddct, ddct_error
 
@@ -171,7 +172,8 @@ def server(input, output, session):
             .agg(
                 ddct_mean=("ddct", "mean"),
                 # Propagated error of ddCT 
-                ddct_error=("ddct_error", lambda x: np.sqrt(np.sum(x**2))),            )
+                ddct_error=("ddct_error", lambda x: np.sqrt(np.sum(x**2)))
+                )
             .reset_index()
         )
 

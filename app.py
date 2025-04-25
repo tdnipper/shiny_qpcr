@@ -16,9 +16,11 @@ app_ui = ui.page_fluid(
     ),
     ui.input_selectize("control", "Select control group:", choices=[], selected="mock"),
     ui.card(ui.output_data_frame("ddct")),
-    ui.download_button("ddct_data_download", "Download ddCT data"),
+    ui.download_button("foldchange_data_download", "Download foldchange data"),
+    ui.download_button("full_data_download", "Download full ddCT data"),
     ui.input_selectize("plot_groups", "Select groups to plot:", choices=[], multiple=True),
-    ui.card(output_widget("foldchange_plot"))
+    ui.card(output_widget("foldchange_plot")),
+    ui.card(output_widget("ddct_plot"))
 )
 
 
@@ -155,8 +157,9 @@ def server(input, output, session):
         if results is not None:
             for key, result in results.items():
                 ddct_df_list.append(result)
-            ddct_df = pd.concat(ddct_df_list)
-            return ddct_df
+            ddct_df = pd.concat(ddct_df_list).reset_index(drop=True)
+            ddct_df_sorted = ddct_df.sort_values(by=["Sample Name", "Target Name"]).reset_index(drop=True)
+            return ddct_df_sorted
 
     @reactive.calc
     def foldchange():
@@ -183,14 +186,34 @@ def server(input, output, session):
 
         return stats
     
-    @render.download(filename = 'ddCT_data.xlsx')
-    def ddct_data_download():
+    @render.download(filename = 'foldchange_data.xlsx')
+    def foldchange_data_download():
         if foldchange() is not None:
             data = foldchange()
             with io.BytesIO() as buf:
                 data.to_excel(buf)
                 yield buf.getvalue()
     
+    @render.download(filename = 'ddCT_data.xlsx')
+    def full_data_download():
+        if ddct_dfs() is not None:
+            data = ddct_dfs()
+            with io.BytesIO() as buf:
+                data.to_excel(buf)
+                yield buf.getvalue()
+    
+    @reactive.calc
+    def select_for_ddct_plot():
+        data = ddct_dfs()
+        groups = list(input.plot_groups())
+        if data is not None:
+            new_data_list = []
+            for group in groups:
+                data_sub = filter_targets(data, group)
+                new_data_list.append(data_sub)
+            new_data = pd.concat(new_data_list, axis=0)
+            return new_data
+
     @reactive.calc
     def select_for_plot():
         data = foldchange()
@@ -242,24 +265,50 @@ def server(input, output, session):
     @render.data_frame
     def ddct():
         return foldchange()
+    
+    @render_widget
+    def ddct_plot():
+        data = select_for_ddct_plot()
+        if data is not None and not data.empty:
+            # use propagated SE instead of raw SD
+            plot = px.box(
+                data,
+                x="id",
+                y="ddct",
+                # box=True,
+                # error_y="ddct_error",
+                # stripmode="overlay",
+                color="Target Name",
+                labels={
+                    "ddct": "ddCT",
+                    "id": ""
+                },
+                title="Relative Expression (ΔΔCt)",
+                template="simple_white",
+            )
+            plot.update_traces(showlegend=False)
+            return plot
 
     @render_widget
     def foldchange_plot():
         data = select_for_plot()
         if data is not None and not data.empty:
             # use propagated SE instead of raw SD
-            plot = px.bar(
+            plot = px.scatter(
                 data,
                 x="id",
                 y="foldchange_mean",
+                symbol="Target Name",
                 color="Target Name",
                 error_y="foldchange_se",
                 labels={
                     "foldchange_mean": "Fold Change (mean ± SE)",
-                    "id": "Sample"
+                    "id": ""
                 },
-                title="Relative Expression (2⁻ΔΔCt) with Propagated Error"
+                title="Relative Expression (2^⁻ΔΔCt) with Propagated Error",
+                template="simple_white",
             )
+            plot.update_layout(showlegend=False)
             return plot
 
 

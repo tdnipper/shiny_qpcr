@@ -6,9 +6,14 @@ LABEL org.opencontainers.image.authors="nipper@wisc.edu"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY ./requirements.txt /
-COPY ./Dockerfile /
-COPY ./app.py /
+COPY ./requirements.txt /app/
+COPY ./Dockerfile /app/
+COPY ./app.py /app/
+COPY ./shared.py /app/
+COPY ./calculations/ /app/calculations/
+COPY ./modules/ /app/modules/
+
+WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y
 

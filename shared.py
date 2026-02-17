@@ -105,6 +105,27 @@ def p_to_star(p: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Plot helpers
+# ---------------------------------------------------------------------------
+
+def apply_classic_theme(fig):
+    """Apply a classic theme (white background, axis lines, no gridlines)."""
+    fig.update_layout(
+        template="simple_white",
+        plot_bgcolor="white",
+        xaxis=dict(
+            showline=True, linewidth=1, linecolor="black",
+            mirror=False, showgrid=False,
+        ),
+        yaxis=dict(
+            showline=True, linewidth=1, linecolor="black",
+            mirror=False, showgrid=False,
+        ),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Export helpers
 # ---------------------------------------------------------------------------
 

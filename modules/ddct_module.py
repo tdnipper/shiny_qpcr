@@ -13,6 +13,7 @@ from shared import (
     p_to_star,
     export_to_excel,
     export_to_csv,
+    apply_classic_theme,
 )
 
 
@@ -33,7 +34,7 @@ def ddct_ui():
             output_widget("foldchange_plot"),
         ),
         ui.card(
-            ui.card_header("ddCT Box Plot"),
+            ui.card_header("ddCT Plot"),
             output_widget("ddct_plot"),
         ),
     )
@@ -233,7 +234,7 @@ def ddct_server(
     def foldchange_plot():
         data = plot_data_foldchange()
         if data is None or data.empty:
-            return px.scatter(title="No data to display")
+            return apply_classic_theme(px.scatter(title="No data to display"))
 
         fig = px.scatter(
             data,
@@ -247,9 +248,10 @@ def ddct_server(
                 "id": "",
             },
             title="Relative Expression (2^-ddCt) with Propagated Error",
-            template="simple_white",
         )
+        fig.update_traces(marker=dict(size=10))
         fig.update_layout(showlegend=False)
+        apply_classic_theme(fig)
 
         # Add significance annotations
         for _, row in data.iterrows():
@@ -268,18 +270,22 @@ def ddct_server(
     def ddct_plot():
         data = plot_data_ddct()
         if data is None or data.empty:
-            return px.box(title="No data to display")
+            return apply_classic_theme(px.scatter(title="No data to display"))
 
-        fig = px.box(
+        fig = px.strip(
             data,
             x="id",
             y="ddct",
             color="Target Name",
             labels={"ddct": "ddCT", "id": ""},
             title="Relative Expression (ddCt)",
-            template="simple_white",
+            stripmode="overlay",
         )
-        fig.update_traces(showlegend=False)
+        fig.update_traces(
+            jitter=0.3, marker=dict(size=8, opacity=0.7),
+            showlegend=False,
+        )
+        apply_classic_theme(fig)
         return fig
 
     # Expose results for parent access

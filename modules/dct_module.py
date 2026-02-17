@@ -3,7 +3,6 @@ import numpy as np
 from shiny import module, ui, render, reactive
 from shinywidgets import output_widget, render_widget
 import plotly.express as px
-import plotly.graph_objects as go
 
 from calculations.dct import calculate_dct_between_groups
 from shared import (
@@ -12,6 +11,7 @@ from shared import (
     p_to_star,
     export_to_excel,
     export_to_csv,
+    apply_classic_theme,
 )
 
 
@@ -28,7 +28,7 @@ def dct_ui():
             col_widths=[3, 3],
         ),
         ui.card(
-            ui.card_header("Fold Change Bar Chart"),
+            ui.card_header("Fold Change Plot"),
             output_widget("foldchange_bar"),
         ),
         ui.card(
@@ -158,9 +158,9 @@ def dct_server(
     def foldchange_bar():
         data = plot_data()
         if data is None or data.empty:
-            return px.bar(title="No data to display")
+            return apply_classic_theme(px.scatter(title="No data to display"))
 
-        fig = px.bar(
+        fig = px.scatter(
             data,
             x="id",
             y="fold_change",
@@ -171,10 +171,11 @@ def dct_server(
                 "id": "",
             },
             title="Fold Change vs Control (2^-dCT)",
-            template="simple_white",
         )
+        fig.update_traces(marker=dict(size=10))
         fig.add_hline(y=1.0, line_dash="dash", line_color="gray")
         fig.update_layout(showlegend=False)
+        apply_classic_theme(fig)
 
         # Add significance annotations
         for _, row in data.iterrows():
@@ -193,9 +194,9 @@ def dct_server(
     def pct_control_bar():
         data = plot_data()
         if data is None or data.empty:
-            return px.bar(title="No data to display")
+            return apply_classic_theme(px.scatter(title="No data to display"))
 
-        fig = px.bar(
+        fig = px.scatter(
             data,
             x="id",
             y="pct_control",
@@ -206,10 +207,11 @@ def dct_server(
                 "id": "",
             },
             title="Expression as Percent of Control",
-            template="simple_white",
         )
+        fig.update_traces(marker=dict(size=10))
         fig.add_hline(y=100.0, line_dash="dash", line_color="gray")
         fig.update_layout(showlegend=False)
+        apply_classic_theme(fig)
         return fig
 
     return {"results": dct_results}

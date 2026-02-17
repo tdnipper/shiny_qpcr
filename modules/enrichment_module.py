@@ -14,6 +14,7 @@ from shared import (
     p_to_star,
     export_to_excel,
     export_to_csv,
+    apply_classic_theme,
 )
 
 
@@ -269,7 +270,7 @@ def enrichment_server(
     def enrichment_plot():
         data = plot_data()
         if data is None or data.empty:
-            return px.bar(title="No data to display")
+            return apply_classic_theme(px.scatter(title="No data to display"))
 
         normalize_igg = normalize_igg_reactive()
 
@@ -286,7 +287,7 @@ def enrichment_server(
             title = "Percent Input"
             ref_line = None
 
-        fig = px.bar(
+        fig = px.scatter(
             data,
             x="id",
             y=y_col,
@@ -294,12 +295,13 @@ def enrichment_server(
             error_y=y_err,
             labels={y_col: y_label, "id": ""},
             title=title,
-            template="simple_white",
         )
+        fig.update_traces(marker=dict(size=10))
         if ref_line is not None:
             fig.add_hline(y=ref_line, line_dash="dash", line_color="gray")
 
         fig.update_layout(showlegend=False)
+        apply_classic_theme(fig)
 
         # Add significance annotations
         for _, row in data.iterrows():

@@ -38,6 +38,7 @@ python-dateutil==2.9.0.post0
 python-multipart==0.0.17
 pytz==2024.2
 questionary==2.0.1
+scipy==1.14.1
 setuptools==75.3.0
 shiny==1.2.0
 shinywidgets==0.3.4

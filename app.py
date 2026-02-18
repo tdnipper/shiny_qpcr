@@ -1,5 +1,5 @@
 from shiny import App, ui, render, reactive
-from shared import import_file
+from shared import import_file, average_technical_replicates
 from modules.ddct_module import ddct_ui, ddct_server
 from modules.dct_module import dct_ui, dct_server
 from modules.enrichment_module import enrichment_ui, enrichment_server
@@ -88,6 +88,7 @@ app_ui = ui.page_sidebar(
     # --- Main content: raw data preview ---
     ui.card(
         ui.card_header("Uploaded Data"),
+        ui.output_text("bio_rep_notice"),
         ui.output_data_frame("raw_table"),
     ),
     # --- Mode-specific outputs (conditionally shown) ---
@@ -116,12 +117,31 @@ def server(input, output, session):
     # --- Shared reactive: uploaded data ---
 
     @reactive.calc
-    def df():
+    def raw_df():
         file_info = input.file()
         if file_info is not None:
-            file_path = file_info[0]["datapath"]
-            return import_file(file_path)
+            return import_file(file_info[0]["datapath"])
         return None
+
+    @reactive.calc
+    def df():
+        raw = raw_df()
+        if raw is not None and "Biological Replicate" in raw.columns:
+            return average_technical_replicates(raw)
+        return raw
+
+    @render.text
+    def bio_rep_notice():
+        raw = raw_df()
+        if raw is not None and "Biological Replicate" in raw.columns:
+            n_bio = raw.groupby(
+                ["Sample Name", "Target Name", "Biological Replicate"]
+            ).ngroups
+            return (
+                f"Biological Replicate column detected. "
+                f"Technical replicates averaged → {n_bio} biological replicate means used for analysis."
+            )
+        return ""
 
     @render.data_frame
     def raw_table():

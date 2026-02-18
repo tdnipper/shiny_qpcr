@@ -27,6 +27,21 @@ def import_file(file_path: str) -> pd.DataFrame:
     return df
 
 
+def average_technical_replicates(df: pd.DataFrame) -> pd.DataFrame:
+    """Average technical replicates within each biological replicate.
+
+    Groups by Sample Name, Target Name, Biological Replicate and returns
+    one row per biological replicate with mean CT. Other columns (e.g.
+    Dilution Factor) are preserved by taking the first value per group.
+    """
+    group_cols = ["Sample Name", "Target Name", "Biological Replicate"]
+    other_cols = [c for c in df.columns if c not in group_cols + ["CT"]]
+    agg = {"CT": "mean"}
+    for col in other_cols:
+        agg[col] = "first"
+    return df.groupby(group_cols).agg(agg).reset_index()
+
+
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 services:
   shiny_qpcr:
-    build: .
+    container_name: shiny_qpcr
+    image: quay.io/tdnipper/shiny_qpcr:latest
     ports:
       - "8000:8000"
+    restart: unless-stopped

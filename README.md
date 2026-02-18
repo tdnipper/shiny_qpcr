@@ -45,8 +45,7 @@ When naming samples on the instrument, use `GroupName_ConditionName` and ensure 
 
 ## Running the container
 
-The container is hosted at `quay.io/tdnipper/shiny_qpcr` and can be run via [docker](https://www.docker.com/) or [podman](https://podman.io/get-started).
-When running the container, expose port 8000 so that the web UI can be accessed on the local host. For example: `podman run --rm -p 8000:8000 quay.io/tdnipper/shiny_qpcr`. Running this via CLI will generate a link to `localhost:8000` that accesses the web UI. If you're using wsl, make sure to navigate to `localhost:8000` instead of `0.0.0.0:8000`.
+The container is hosted at `quay.io/tdnipper/shiny_qpcr` and can be run via [docker](https://www.docker.com/) or [podman](https://podman.io/get-started). To run the container, use docker compose or podman-compose to start using the included docker-compose.yml file. This will start the container at http://127.0.0.1:8000.
 
 ## Running natively
 

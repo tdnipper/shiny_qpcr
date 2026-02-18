@@ -32,21 +32,21 @@ app_ui = ui.page_sidebar(
                 "housekeeping", "Housekeeping gene:", choices=[],
             ),
             ui.input_selectize(
-                "control_ddct", "Control group:", choices=[],
+                "control_ddct", "Control condition:", choices=[],
             ),
         ),
         # --- dCT-specific inputs ---
         ui.panel_conditional(
             "input.analysis_mode === 'dct'",
             ui.input_selectize(
-                "control_dct", "Control group:", choices=[],
+                "control_dct", "Control condition:", choices=[],
             ),
         ),
         # --- Enrichment-specific inputs ---
         ui.panel_conditional(
             "input.analysis_mode === 'enrichment'",
             ui.input_selectize(
-                "input_group", "Input/Reference group:", choices=[],
+                "input_group", "Input condition:", choices=[],
             ),
             ui.input_numeric(
                 "dilution_factor", "Input dilution factor:",
@@ -58,7 +58,7 @@ app_ui = ui.page_sidebar(
             ui.panel_conditional(
                 "input.normalize_igg",
                 ui.input_selectize(
-                    "igg_group", "IgG/Negative control group:", choices=[],
+                    "igg_group", "IgG condition:", choices=[],
                 ),
             ),
         ),
@@ -135,7 +135,7 @@ def server(input, output, session):
         raw = raw_df()
         if raw is not None and "Biological Replicate" in raw.columns:
             n_bio = raw.groupby(
-                ["Sample Name", "Target Name", "Biological Replicate"]
+                ["Group", "Condition", "Target Name", "Biological Replicate"]
             ).ngroups
             return (
                 f"Biological Replicate column detected. "
@@ -198,8 +198,8 @@ def server(input, output, session):
         target_names = sorted(
             dataframe["Target Name"].dropna().unique().tolist()
         )
-        group_names = sorted(
-            dataframe["Sample Name"].dropna().unique().tolist()
+        condition_names = sorted(
+            dataframe["Condition"].dropna().unique().tolist()
         )
 
         # ddCT mode
@@ -208,24 +208,24 @@ def server(input, output, session):
             selected=target_names[0] if target_names else None,
         )
         ui.update_selectize(
-            "control_ddct", choices=group_names,
-            selected=group_names[0] if group_names else None,
+            "control_ddct", choices=condition_names,
+            selected=condition_names[0] if condition_names else None,
         )
 
         # dCT mode
         ui.update_selectize(
-            "control_dct", choices=group_names,
-            selected=group_names[0] if group_names else None,
+            "control_dct", choices=condition_names,
+            selected=condition_names[0] if condition_names else None,
         )
 
         # Enrichment mode
         ui.update_selectize(
-            "input_group", choices=group_names,
-            selected=group_names[0] if group_names else None,
+            "input_group", choices=condition_names,
+            selected=condition_names[0] if condition_names else None,
         )
         ui.update_selectize(
-            "igg_group", choices=group_names,
-            selected=group_names[1] if len(group_names) > 1 else None,
+            "igg_group", choices=condition_names,
+            selected=condition_names[1] if len(condition_names) > 1 else None,
         )
 
         # Shared: targets for plotting

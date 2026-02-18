@@ -17,7 +17,7 @@ def import_file(file_path: str) -> pd.DataFrame:
     else:
         raise ValueError(f"Unsupported file format: {file_path}")
 
-    required = {"Sample Name", "Target Name", "CT"}
+    required = {"Group", "Condition", "Target Name", "CT"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
@@ -34,7 +34,7 @@ def average_technical_replicates(df: pd.DataFrame) -> pd.DataFrame:
     one row per biological replicate with mean CT. Other columns (e.g.
     Dilution Factor) are preserved by taking the first value per group.
     """
-    group_cols = ["Sample Name", "Target Name", "Biological Replicate"]
+    group_cols = ["Group", "Condition", "Target Name", "Biological Replicate"]
     other_cols = [c for c in df.columns if c not in group_cols + ["CT"]]
     agg = {"CT": "mean"}
     for col in other_cols:
@@ -52,10 +52,10 @@ def filter_targets(df: pd.DataFrame, target: str) -> pd.DataFrame:
 
 
 def group_ct_data(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Split a DataFrame into a dict keyed by 'TargetName_SampleName'."""
+    """Split a DataFrame into a dict keyed by 'TargetName_GroupName_Condition'."""
     results = {}
-    for (target, sample), group_df in df.groupby(["Target Name", "Sample Name"]):
-        results[f"{target}_{sample}"] = group_df.copy()
+    for (target, group, condition), group_df in df.groupby(["Target Name", "Group", "Condition"]):
+        results[f"{target}_{group}_{condition}"] = group_df.copy()
     return results
 
 

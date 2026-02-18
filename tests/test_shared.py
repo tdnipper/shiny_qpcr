@@ -21,7 +21,8 @@ from shared import (
 @pytest.fixture
 def sample_df():
     return pd.DataFrame({
-        "Sample Name": ["A", "A", "B", "B"],
+        "Group": ["Grp1", "Grp1", "Grp1", "Grp1"],
+        "Condition": ["A", "A", "B", "B"],
         "Target Name": ["Gene1", "Gene1", "Gene1", "Gene1"],
         "CT": [20.0, 21.0, 22.0, 23.0],
     })
@@ -40,10 +41,10 @@ class TestFilterTargets:
 class TestGroupCtData:
     def test_groups_correctly(self, sample_df):
         result = group_ct_data(sample_df)
-        assert "Gene1_A" in result
-        assert "Gene1_B" in result
-        assert len(result["Gene1_A"]) == 2
-        assert len(result["Gene1_B"]) == 2
+        assert "Gene1_Grp1_A" in result
+        assert "Gene1_Grp1_B" in result
+        assert len(result["Gene1_Grp1_A"]) == 2
+        assert len(result["Gene1_Grp1_B"]) == 2
 
 
 class TestWelchTtest:
@@ -115,7 +116,7 @@ class TestExport:
     def test_csv_export(self, sample_df):
         result = export_to_csv(sample_df)
         assert isinstance(result, bytes)
-        assert b"Sample Name" in result
+        assert b"Target Name" in result
 
     def test_excel_export(self, sample_df):
         result = export_to_excel(sample_df)

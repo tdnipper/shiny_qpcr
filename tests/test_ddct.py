@@ -10,24 +10,24 @@ from calculations.ddct import calculate_ddct
 
 
 def _make_results(gene_group_ct, ctrl_gene_group_ct,
-                  gene_ctrl_group_ct, ctrl_gene_ctrl_group_ct):
+                  gene_ctrl_cond_ct, ctrl_gene_ctrl_cond_ct):
     """Helper to build the results dict expected by calculate_ddct."""
     return {
-        "GeneA_Exp": pd.DataFrame({"CT": gene_group_ct}),
-        "HK_Exp": pd.DataFrame({"CT": ctrl_gene_group_ct}),
-        "GeneA_Control": pd.DataFrame({"CT": gene_ctrl_group_ct}),
-        "HK_Control": pd.DataFrame({"CT": ctrl_gene_ctrl_group_ct}),
+        "GeneA_Grp_exp": pd.DataFrame({"CT": gene_group_ct}),
+        "HK_Grp_exp": pd.DataFrame({"CT": ctrl_gene_group_ct}),
+        "GeneA_Grp_ctrl": pd.DataFrame({"CT": gene_ctrl_cond_ct}),
+        "HK_Grp_ctrl": pd.DataFrame({"CT": ctrl_gene_ctrl_cond_ct}),
     }
 
 
 def test_self_referential_returns_zero():
-    """When gene == control_gene and group == control_group, ddCT should be 0."""
+    """When gene == control_gene and condition == control_condition, ddCT should be 0."""
     results = _make_results(
         [20.0, 20.0], [10.0, 10.0], [20.0, 20.0], [10.0, 10.0]
     )
     ddct, error = calculate_ddct(
-        results, gene="HK", group="Control",
-        control_gene="HK", control_group="Control",
+        results, gene="HK", group="Grp", condition="ctrl",
+        control_gene="HK", control_condition="ctrl",
     )
     assert ddct == 0
     assert error == 0
@@ -38,8 +38,8 @@ def test_identical_cts_give_zero_ddct():
     ct = [20.0, 20.0, 20.0]
     results = _make_results(ct, ct, ct, ct)
     ddct, error = calculate_ddct(
-        results, gene="GeneA", group="Exp",
-        control_gene="HK", control_group="Control",
+        results, gene="GeneA", group="Grp", condition="exp",
+        control_gene="HK", control_condition="ctrl",
     )
     np.testing.assert_allclose(ddct, 0.0, atol=1e-10)
 
@@ -53,8 +53,8 @@ def test_known_ddct_values():
     """
     results = _make_results([25.0], [15.0], [22.0], [12.0])
     ddct, error = calculate_ddct(
-        results, gene="GeneA", group="Exp",
-        control_gene="HK", control_group="Control",
+        results, gene="GeneA", group="Grp", condition="exp",
+        control_gene="HK", control_condition="ctrl",
     )
     np.testing.assert_allclose(ddct, 0.0, atol=1e-10)
 
@@ -66,17 +66,17 @@ def test_nonzero_ddct():
     """
     results = _make_results([25.0], [15.0], [20.0], [12.0])
     ddct, error = calculate_ddct(
-        results, gene="GeneA", group="Exp",
-        control_gene="HK", control_group="Control",
+        results, gene="GeneA", group="Grp", condition="exp",
+        control_gene="HK", control_condition="ctrl",
     )
     np.testing.assert_allclose(ddct, 2.0, atol=1e-10)
 
 
 def test_missing_key_raises():
     """If a required key is missing, KeyError should be raised."""
-    results = {"GeneA_Exp": pd.DataFrame({"CT": [20.0]})}
+    results = {"GeneA_Grp_exp": pd.DataFrame({"CT": [20.0]})}
     with pytest.raises(KeyError):
         calculate_ddct(
-            results, gene="GeneA", group="Exp",
-            control_gene="HK", control_group="Control",
+            results, gene="GeneA", group="Grp", condition="exp",
+            control_gene="HK", control_condition="ctrl",
         )

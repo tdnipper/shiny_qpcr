@@ -8,16 +8,53 @@ from scipy import stats
 # File import
 # ---------------------------------------------------------------------------
 
+def _is_quantstudio_export(file_path: str) -> bool:
+    if not file_path.endswith((".xls", ".xlsx")):
+        return False
+    import openpyxl
+    wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+    result = "Results" in wb.sheetnames
+    wb.close()
+    return result
+
+
+def _split_sample_name(sample_name: str) -> tuple[str, str]:
+    if "_" not in sample_name:
+        raise ValueError(
+            f"Sample Name '{sample_name}' has no underscore; "
+            "cannot split into Group and Condition."
+        )
+    group, _, condition = sample_name.rpartition("_")
+    return group, condition
+
+
+def _transform_quantstudio_df(df: pd.DataFrame) -> pd.DataFrame:
+    split = df["Sample Name"].apply(_split_sample_name)
+    df = df.copy()
+    df["Group"] = [pair[0] for pair in split]
+    df["Condition"] = [pair[1] for pair in split]
+    df = df.rename(columns={"Task": "Biological Replicate"})
+    df = df.drop(columns=["Sample Name"])
+    cols = ["Group", "Condition", "Target Name", "CT", "Biological Replicate"]
+    extra = [c for c in df.columns if c not in cols]
+    return df[cols + extra]
+
+
 def import_file(file_path: str) -> pd.DataFrame:
     """Read CSV/XLSX, remove Undetermined/NTC, validate required columns."""
     if file_path.endswith(".csv"):
         df = pd.read_csv(file_path, na_values=["Undetermined", "NTC"])
     elif file_path.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file_path, na_values=["Undetermined", "NTC"])
+        if _is_quantstudio_export(file_path):
+            from qpcr_importer import FileImporter
+            raw = FileImporter(file_path).import_file()
+            df = _transform_quantstudio_df(raw)
+        else:
+            df = pd.read_excel(file_path, na_values=["Undetermined", "NTC"])
     else:
         raise ValueError(f"Unsupported file format: {file_path}")
 
-    required = {"Sample Name", "Target Name", "CT"}
+    required = {"Group", "Condition", "Target Name", "CT"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
@@ -34,7 +71,7 @@ def average_technical_replicates(df: pd.DataFrame) -> pd.DataFrame:
     one row per biological replicate with mean CT. Other columns (e.g.
     Dilution Factor) are preserved by taking the first value per group.
     """
-    group_cols = ["Sample Name", "Target Name", "Biological Replicate"]
+    group_cols = ["Group", "Condition", "Target Name", "Biological Replicate"]
     other_cols = [c for c in df.columns if c not in group_cols + ["CT"]]
     agg = {"CT": "mean"}
     for col in other_cols:
@@ -52,10 +89,10 @@ def filter_targets(df: pd.DataFrame, target: str) -> pd.DataFrame:
 
 
 def group_ct_data(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Split a DataFrame into a dict keyed by 'TargetName_SampleName'."""
+    """Split a DataFrame into a dict keyed by 'TargetName_GroupName_Condition'."""
     results = {}
-    for (target, sample), group_df in df.groupby(["Target Name", "Sample Name"]):
-        results[f"{target}_{sample}"] = group_df.copy()
+    for (target, group, condition), group_df in df.groupby(["Target Name", "Group", "Condition"]):
+        results[f"{target}_{group}_{condition}"] = group_df.copy()
     return results
 
 

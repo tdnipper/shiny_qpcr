@@ -8,7 +8,7 @@ from calculations.ddct import calculate_ddct
 from shared import (
     filter_targets,
     group_ct_data,
-    welch_ttest,
+    one_sample_ttest,
     correct_pvalues,
     p_to_star,
     export_to_excel,
@@ -60,7 +60,7 @@ def ddct_server(
     housekeeping_reactive : reactive.Calc
         Returns the selected housekeeping gene name.
     control_reactive : reactive.Calc
-        Returns the selected control group name.
+        Returns the selected control condition name.
     plot_targets_reactive : reactive.Calc
         Returns the list of target names selected for plotting.
     correction_method_reactive : reactive.Calc
@@ -74,11 +74,11 @@ def ddct_server(
             return None
         df = dataframe.copy()
         df["mean"] = (
-            df.groupby(["Sample Name", "Target Name"])["CT"]
+            df.groupby(["Group", "Condition", "Target Name"])["CT"]
             .transform("mean")
             .reset_index(drop=True)
         )
-        df["id"] = df["Target Name"] + "_" + df["Sample Name"]
+        df["id"] = df["Group"] + "_" + df["Condition"]
         return df
 
     @reactive.calc
@@ -101,25 +101,31 @@ def ddct_server(
             return None
 
         genes = df["Target Name"].unique().tolist()
-        groups = df["Sample Name"].unique().tolist()
+        groups = df["Group"].unique().tolist()
+        conditions = df["Condition"].unique().tolist()
 
         for gene in genes:
-            for group in groups:
-                key = f"{gene}_{group}"
-                if key in results:
-                    results[key]["ddct"], results[key]["ddct_error"] = (
-                        calculate_ddct(
-                            results=results,
-                            gene=gene,
-                            group=group,
-                            control_gene=housekeeping,
-                            control_group=control,
+            for grp in groups:
+                for cond in conditions:
+                    if cond == control:
+                        continue
+                    key = f"{gene}_{grp}_{cond}"
+                    if key in results:
+                        results[key]["ddct"], results[key]["ddct_error"] = (
+                            calculate_ddct(
+                                results=results,
+                                gene=gene,
+                                group=grp,
+                                condition=cond,
+                                control_gene=housekeeping,
+                                control_condition=control,
+                            )
                         )
-                    )
 
         ddct_df = pd.concat(results.values()).reset_index(drop=True)
+        ddct_df = ddct_df.dropna(subset=["ddct"]).reset_index(drop=True)
         return ddct_df.sort_values(
-            by=["Sample Name", "Target Name"]
+            by=["Group", "Condition", "Target Name"]
         ).reset_index(drop=True)
 
     @reactive.calc
@@ -129,7 +135,7 @@ def ddct_server(
             return None
 
         stats = (
-            df_dd.groupby(["Sample Name", "Target Name", "id"])
+            df_dd.groupby(["Group", "Condition", "Target Name", "id"])
             .agg(
                 ddct_mean=("ddct", "mean"),
                 ddct_error=(
@@ -161,29 +167,24 @@ def ddct_server(
         p_values = []
         for _, row in fc.iterrows():
             target = row["Target Name"]
-            group = row["Sample Name"]
+            grp = row["Group"]
+            cond = row["Condition"]
 
-            if target == housekeeping or group == control:
+            if target == housekeeping or cond == control:
                 p_values.append(np.nan)
                 continue
 
-            # Get dCT values for this target in this group vs control
             exp_data = df_dd[
                 (df_dd["Target Name"] == target)
-                & (df_dd["Sample Name"] == group)
-            ]
-            ctrl_data = df_dd[
-                (df_dd["Target Name"] == target)
-                & (df_dd["Sample Name"] == control)
+                & (df_dd["Group"] == grp)
+                & (df_dd["Condition"] == cond)
             ]
 
-            if exp_data.empty or ctrl_data.empty:
+            if exp_data.empty:
                 p_values.append(np.nan)
                 continue
 
-            _, p = welch_ttest(
-                exp_data["ddct"].values, ctrl_data["ddct"].values
-            )
+            _, p = one_sample_ttest(exp_data["ddct"].values, popmean=0.0)
             p_values.append(p)
 
         fc = fc.copy()

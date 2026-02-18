@@ -70,49 +70,55 @@ def dct_server(
             return None
 
         targets = df["Target Name"].unique().tolist()
-        groups = df["Sample Name"].unique().tolist()
+        groups = df["Group"].unique().tolist()
+        conditions = df["Condition"].unique().tolist()
 
         rows = []
         for target in targets:
-            ct_control = df[
-                (df["Target Name"] == target) & (df["Sample Name"] == control)
-            ]["CT"].values
-
-            if len(ct_control) == 0:
-                continue
-
-            for group in groups:
-                if group == control:
-                    continue
-
-                ct_exp = df[
+            for grp in groups:
+                ct_control = df[
                     (df["Target Name"] == target)
-                    & (df["Sample Name"] == group)
+                    & (df["Group"] == grp)
+                    & (df["Condition"] == control)
                 ]["CT"].values
 
-                if len(ct_exp) == 0:
+                if len(ct_control) == 0:
                     continue
 
-                result = calculate_dct_between_groups(ct_exp, ct_control)
+                for cond in conditions:
+                    if cond == control:
+                        continue
 
-                # Statistical test: Welch's t-test on raw CT values
-                _, p_val = welch_ttest(ct_exp, ct_control)
+                    ct_exp = df[
+                        (df["Target Name"] == target)
+                        & (df["Group"] == grp)
+                        & (df["Condition"] == cond)
+                    ]["CT"].values
 
-                rows.append(
-                    {
-                        "Target Name": target,
-                        "Sample Name": group,
-                        "Control": control,
-                        "id": f"{target}_{group}",
-                        "dCT": result["dCT"],
-                        "dCT_SEM": result["dCT_SEM"],
-                        "fold_change": result["fold_change"],
-                        "fold_change_SE": result["fold_change_SE"],
-                        "pct_control": result["pct_control"],
-                        "pct_control_SE": result["pct_control_SE"],
-                        "p_value": p_val,
-                    }
-                )
+                    if len(ct_exp) == 0:
+                        continue
+
+                    result = calculate_dct_between_groups(ct_exp, ct_control)
+
+                    # Statistical test: Welch's t-test on raw CT values
+                    _, p_val = welch_ttest(ct_exp, ct_control)
+
+                    rows.append(
+                        {
+                            "Target Name": target,
+                            "Group": grp,
+                            "Condition": cond,
+                            "Control Condition": control,
+                            "id": f"{target}_{grp}_{cond}",
+                            "dCT": result["dCT"],
+                            "dCT_SEM": result["dCT_SEM"],
+                            "fold_change": result["fold_change"],
+                            "fold_change_SE": result["fold_change_SE"],
+                            "pct_control": result["pct_control"],
+                            "pct_control_SE": result["pct_control_SE"],
+                            "p_value": p_val,
+                        }
+                    )
 
         if not rows:
             return None

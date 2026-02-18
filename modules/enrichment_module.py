@@ -92,54 +92,59 @@ def enrichment_server(
 
         dilution = get_dilution()
         targets = df["Target Name"].unique().tolist()
-        ip_groups = [
-            g for g in df["Sample Name"].unique() if g != input_group
+        groups = df["Group"].unique().tolist()
+        ip_conditions = [
+            c for c in df["Condition"].unique() if c != input_group
         ]
 
-        # If IgG normalization is on, also exclude IgG from IP groups
+        # If IgG normalization is on, also exclude IgG from IP conditions
         normalize_igg = normalize_igg_reactive()
         igg_group = igg_group_reactive()
         if normalize_igg and igg_group:
-            ip_groups = [g for g in ip_groups if g != igg_group]
+            ip_conditions = [c for c in ip_conditions if c != igg_group]
 
         rows = []
         for target in targets:
-            ct_input = df[
-                (df["Target Name"] == target)
-                & (df["Sample Name"] == input_group)
-            ]["CT"].values
-
-            if len(ct_input) == 0:
-                continue
-
-            for ip in ip_groups:
-                ct_ip = df[
+            for grp in groups:
+                ct_input = df[
                     (df["Target Name"] == target)
-                    & (df["Sample Name"] == ip)
+                    & (df["Group"] == grp)
+                    & (df["Condition"] == input_group)
                 ]["CT"].values
 
-                if len(ct_ip) == 0:
+                if len(ct_input) == 0:
                     continue
 
-                result = calculate_percent_input(ct_ip, ct_input, dilution)
+                for ip_cond in ip_conditions:
+                    ct_ip = df[
+                        (df["Target Name"] == target)
+                        & (df["Group"] == grp)
+                        & (df["Condition"] == ip_cond)
+                    ]["CT"].values
 
-                # Stat test: Welch's t-test on CT values (IP vs Input)
-                _, p_val = welch_ttest(ct_ip, ct_input)
+                    if len(ct_ip) == 0:
+                        continue
 
-                rows.append(
-                    {
-                        "Target Name": target,
-                        "IP Group": ip,
-                        "Input Group": input_group,
-                        "id": f"{target}_{ip}",
-                        "pct_input": result["pct_input"],
-                        "pct_input_SE": result["pct_input_SE"],
-                        "delta": result["delta"],
-                        "delta_SEM": result["delta_SEM"],
-                        "dilution_factor": dilution,
-                        "p_value": p_val,
-                    }
-                )
+                    result = calculate_percent_input(ct_ip, ct_input, dilution)
+
+                    # Stat test: Welch's t-test on CT values (IP vs Input)
+                    _, p_val = welch_ttest(ct_ip, ct_input)
+
+                    rows.append(
+                        {
+                            "Target Name": target,
+                            "Group": grp,
+                            "IP Condition": ip_cond,
+                            "Input Condition": input_group,
+                            "id": f"{target}_{grp}_{ip_cond}",
+                            "pct_input": result["pct_input"],
+                            "pct_input_SE": result["pct_input_SE"],
+                            "delta": result["delta"],
+                            "delta_SEM": result["delta_SEM"],
+                            "dilution_factor": dilution,
+                            "p_value": p_val,
+                        }
+                    )
 
         if not rows:
             return None
@@ -163,61 +168,67 @@ def enrichment_server(
 
         dilution = get_dilution()
         targets = df["Target Name"].unique().tolist()
-        ip_groups = [
-            g
-            for g in df["Sample Name"].unique()
-            if g not in (input_group, igg_group)
+        groups = df["Group"].unique().tolist()
+        ip_conditions = [
+            c
+            for c in df["Condition"].unique()
+            if c not in (input_group, igg_group)
         ]
 
         rows = []
         for target in targets:
-            ct_input_ip = df[
-                (df["Target Name"] == target)
-                & (df["Sample Name"] == input_group)
-            ]["CT"].values
-
-            ct_igg = df[
-                (df["Target Name"] == target)
-                & (df["Sample Name"] == igg_group)
-            ]["CT"].values
-
-            # Input for IgG is the same Input sample
-            ct_input_igg = ct_input_ip
-
-            if len(ct_input_ip) == 0 or len(ct_igg) == 0:
-                continue
-
-            for ip in ip_groups:
-                ct_ip = df[
+            for grp in groups:
+                ct_input = df[
                     (df["Target Name"] == target)
-                    & (df["Sample Name"] == ip)
+                    & (df["Group"] == grp)
+                    & (df["Condition"] == input_group)
                 ]["CT"].values
 
-                if len(ct_ip) == 0:
+                ct_igg = df[
+                    (df["Target Name"] == target)
+                    & (df["Group"] == grp)
+                    & (df["Condition"] == igg_group)
+                ]["CT"].values
+
+                # Input for IgG normalization is the same group's input
+                ct_input_igg = ct_input
+
+                if len(ct_input) == 0 or len(ct_igg) == 0:
                     continue
 
-                result = calculate_fold_enrichment(
-                    ct_ip, ct_input_ip, ct_igg, ct_input_igg, dilution
-                )
+                for ip_cond in ip_conditions:
+                    ct_ip = df[
+                        (df["Target Name"] == target)
+                        & (df["Group"] == grp)
+                        & (df["Condition"] == ip_cond)
+                    ]["CT"].values
 
-                # Stat test: Welch's t-test comparing IP to IgG CTs
-                _, p_val = welch_ttest(ct_ip, ct_igg)
+                    if len(ct_ip) == 0:
+                        continue
 
-                rows.append(
-                    {
-                        "Target Name": target,
-                        "IP Group": ip,
-                        "IgG Group": igg_group,
-                        "Input Group": input_group,
-                        "id": f"{target}_{ip}",
-                        "ddCT": result["ddCT"],
-                        "ddCT_SEM": result["ddCT_SEM"],
-                        "fold_enrichment": result["fold_enrichment"],
-                        "fold_enrichment_SE": result["fold_enrichment_SE"],
-                        "dilution_factor": dilution,
-                        "p_value": p_val,
-                    }
-                )
+                    result = calculate_fold_enrichment(
+                        ct_ip, ct_input, ct_igg, ct_input_igg, dilution
+                    )
+
+                    # Stat test: Welch's t-test comparing IP to IgG CTs
+                    _, p_val = welch_ttest(ct_ip, ct_igg)
+
+                    rows.append(
+                        {
+                            "Target Name": target,
+                            "Group": grp,
+                            "IP Condition": ip_cond,
+                            "IgG Condition": igg_group,
+                            "Input Condition": input_group,
+                            "id": f"{target}_{grp}_{ip_cond}",
+                            "ddCT": result["ddCT"],
+                            "ddCT_SEM": result["ddCT_SEM"],
+                            "fold_enrichment": result["fold_enrichment"],
+                            "fold_enrichment_SE": result["fold_enrichment_SE"],
+                            "dilution_factor": dilution,
+                            "p_value": p_val,
+                        }
+                    )
 
         if not rows:
             return None

@@ -1,0 +1,5 @@
+services:
+  shiny_qpcr:
+    build: .
+    ports:
+      - "8000:8000"

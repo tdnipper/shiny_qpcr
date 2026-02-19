@@ -14,12 +14,22 @@ from shared import (
     export_to_excel,
     export_to_csv,
     apply_classic_theme,
+    _run_posthoc,
+    _lookup_posthoc_pval,
+    two_way_anova,
 )
 
 
 @module.ui
 def ddct_ui():
     return ui.TagList(
+        ui.panel_conditional(
+            "input.stat_test === 'anova2'",
+            ui.card(
+                ui.card_header("Two-Way ANOVA Summary (Group × Condition)"),
+                ui.output_data_frame("anova2_table"),
+            ),
+        ),
         ui.card(
             ui.card_header("ddCT Results (Fold Change Summary)"),
             ui.output_data_frame("results_table"),
@@ -50,6 +60,8 @@ def ddct_server(
     control_reactive,
     plot_targets_reactive,
     correction_method_reactive,
+    stat_test_reactive,
+    posthoc_reactive,
 ):
     """Server logic for the ddCT (relative expression) analysis mode.
 
@@ -65,6 +77,10 @@ def ddct_server(
         Returns the list of target names selected for plotting.
     correction_method_reactive : reactive.Calc
         Returns the p-value correction method string.
+    stat_test_reactive : reactive.Calc
+        Returns the selected statistical test string.
+    posthoc_reactive : reactive.Calc
+        Returns the selected post-hoc test string.
     """
 
     @reactive.calc
@@ -164,6 +180,9 @@ def ddct_server(
         if not control or not housekeeping:
             return fc
 
+        stat_test = stat_test_reactive()
+        posthoc_test = posthoc_reactive()
+
         p_values = []
         for _, row in fc.iterrows():
             target = row["Target Name"]
@@ -184,14 +203,99 @@ def ddct_server(
                 p_values.append(np.nan)
                 continue
 
-            _, p = one_sample_ttest(exp_data["ddct"].values, popmean=0.0)
-            p_values.append(p)
+            if stat_test == "none":
+                p_values.append(np.nan)
+            elif stat_test == "ttest":
+                _, p = one_sample_ttest(exp_data["ddct"].values, popmean=0.0)
+                p_values.append(p)
+            else:
+                # Build groups_dict: control = zeros (n = # control CT replicates)
+                # Each experimental condition = its ddct values
+                df_raw = df_reactive()
+                if df_raw is None:
+                    p_values.append(np.nan)
+                    continue
+
+                conditions = df_dd["Condition"].unique().tolist()
+                groups_ddct = {}
+
+                # Control group: zeros with n = # control CT replicates for this target/group
+                ct_control = df_raw[
+                    (df_raw["Target Name"] == target)
+                    & (df_raw["Group"] == grp)
+                    & (df_raw["Condition"] == control)
+                ]["CT"].values
+                n_control = len(ct_control)
+                if n_control > 0:
+                    groups_ddct[control] = np.zeros(n_control)
+
+                for c in conditions:
+                    if c == control:
+                        continue
+                    exp_c = df_dd[
+                        (df_dd["Target Name"] == target)
+                        & (df_dd["Group"] == grp)
+                        & (df_dd["Condition"] == c)
+                    ]
+                    if not exp_c.empty:
+                        groups_ddct[c] = exp_c["ddct"].values
+
+                ph_df = _run_posthoc(groups_ddct, stat_test, posthoc_test)
+                p = _lookup_posthoc_pval(ph_df, control, cond)
+                p_values.append(p)
 
         fc = fc.copy()
         method = correction_method_reactive()
         fc["p_value"] = correct_pvalues(np.array(p_values), method=method)
         fc["significance"] = fc["p_value"].apply(p_to_star)
         return fc
+
+    @reactive.calc
+    def anova2_results():
+        if stat_test_reactive() != "anova2":
+            return None
+        df_dd = ddct_results()
+        if df_dd is None:
+            return None
+
+        housekeeping = housekeeping_reactive()
+        control = control_reactive()
+        targets = [t for t in df_dd["Target Name"].unique() if t != housekeeping]
+
+        all_rows = []
+        for target in targets:
+            target_df = df_dd[df_dd["Target Name"] == target][
+                ["Group", "Condition", "ddct"]
+            ].copy()
+            # Include control rows as ddct=0
+            df_raw = df_reactive()
+            if df_raw is not None and control:
+                groups_in_data = df_raw["Group"].unique().tolist()
+                control_rows = []
+                for grp in groups_in_data:
+                    ct_control = df_raw[
+                        (df_raw["Target Name"] == target)
+                        & (df_raw["Group"] == grp)
+                        & (df_raw["Condition"] == control)
+                    ]["CT"].values
+                    for _ in range(len(ct_control)):
+                        control_rows.append({
+                            "Group": grp,
+                            "Condition": control,
+                            "ddct": 0.0,
+                        })
+                if control_rows:
+                    ctrl_df = pd.DataFrame(control_rows)
+                    target_df = pd.concat([target_df, ctrl_df], ignore_index=True)
+
+            anova_df = two_way_anova(target_df, "ddct", "Group", "Condition")
+            if not anova_df.empty:
+                anova_df.insert(0, "Target Name", target)
+                all_rows.append(anova_df)
+
+        if not all_rows:
+            return None
+        return pd.concat(all_rows, ignore_index=True)
 
     # ---- Downloads ----
 
@@ -230,6 +334,10 @@ def ddct_server(
     @render.data_frame
     def results_table():
         return foldchange_with_stats()
+
+    @render.data_frame
+    def anova2_table():
+        return anova2_results()
 
     @render_widget
     def foldchange_plot():

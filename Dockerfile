@@ -12,6 +12,7 @@ COPY ./app.py /app/
 COPY ./shared.py /app/
 COPY ./calculations/ /app/calculations/
 COPY ./modules/ /app/modules/
+COPY ./qpcr_importer.py /app/
 
 WORKDIR /app
 

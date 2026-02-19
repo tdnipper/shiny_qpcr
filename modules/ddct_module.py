@@ -314,6 +314,19 @@ def ddct_server(
     # ---- Plots ----
 
     @reactive.calc
+    def foldchange_individual_reps():
+        dd = ddct_results()
+        summary = foldchange_with_stats()
+        if dd is None or summary is None:
+            return None
+        reps = dd[["id", "Target Name", "Group", "Condition", "ddct"]].copy()
+        if "Biological Replicate" in dd.columns:
+            reps["Biological Replicate"] = dd["Biological Replicate"]
+        reps["fold_change_rep"] = 2.0 ** -reps["ddct"]
+        sig = summary[["id", "significance"]].drop_duplicates()
+        return reps.merge(sig, on="id", how="left")
+
+    @reactive.calc
     def plot_data_foldchange():
         data = foldchange_with_stats()
         targets = plot_targets_reactive()
@@ -321,6 +334,14 @@ def ddct_server(
             return None
         mask = data["Target Name"].isin(list(targets))
         return data[mask]
+
+    @reactive.calc
+    def plot_data_foldchange_reps():
+        data = foldchange_individual_reps()
+        targets = plot_targets_reactive()
+        if data is None or not targets:
+            return None
+        return data[data["Target Name"].isin(list(targets))]
 
     @reactive.calc
     def plot_data_ddct():
@@ -341,38 +362,37 @@ def ddct_server(
 
     @render_widget
     def foldchange_plot():
-        data = plot_data_foldchange()
-        if data is None or data.empty:
+        reps = plot_data_foldchange_reps()
+        summary = plot_data_foldchange()
+        if reps is None or reps.empty:
             return apply_classic_theme(px.scatter(title="No data to display"))
 
-        fig = px.scatter(
-            data,
+        fig = px.strip(
+            reps,
             x="id",
-            y="foldchange_mean",
-            symbol="Target Name",
+            y="fold_change_rep",
             color="Target Name",
-            error_y="foldchange_se",
-            labels={
-                "foldchange_mean": "Fold Change (mean +/- SE)",
-                "id": "",
-            },
-            title="Relative Expression (2^-ddCt) with Propagated Error",
+            stripmode="overlay",
+            labels={"fold_change_rep": "Fold Change", "id": ""},
+            title="Relative Expression (2^-ddCt)",
         )
-        fig.update_traces(marker=dict(size=10))
+        fig.update_traces(jitter=0.3, marker=dict(size=8, opacity=0.8))
         fig.update_layout(showlegend=False)
         apply_classic_theme(fig)
 
-        # Add significance annotations
-        for _, row in data.iterrows():
-            star = row.get("significance", "")
-            if star and star not in ("", "ns"):
-                fig.add_annotation(
-                    x=row["id"],
-                    y=row["foldchange_mean"] + row["foldchange_se"] * 1.2,
-                    text=star,
-                    showarrow=False,
-                    font=dict(size=14),
-                )
+        if summary is not None and not summary.empty:
+            max_per_id = reps.groupby("id")["fold_change_rep"].max()
+            for _, row in summary.iterrows():
+                star = row.get("significance", "")
+                if star and star not in ("", "ns"):
+                    y_pos = max_per_id.get(row["id"], row["foldchange_mean"]) * 1.15
+                    fig.add_annotation(
+                        x=row["id"],
+                        y=y_pos,
+                        text=star,
+                        showarrow=False,
+                        font=dict(size=14),
+                    )
         return fig
 
     @render_widget

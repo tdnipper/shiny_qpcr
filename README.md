@@ -26,7 +26,18 @@ Four required columns, plus optional extras:
 - **Target Name** — the gene or primer target name.
 - **CT** — the raw CT value. `Undetermined` and `NTC` are treated as missing and dropped automatically.
 
-An optional **Biological Replicate** column can be included. When present, the app first averages technical replicates within each biological replicate, then uses the per-replicate means for statistical analysis.
+An optional **Biological Replicate** column can be included to identify technical replicates. Rows sharing the same Group, Condition, Target Name, and Biological Replicate value are treated as technical replicates and averaged before analysis. This allows, for example, duplicate wells on a plate to be collapsed into a single biological replicate mean.
+
+| Group | Condition | Target Name | CT | Biological Replicate |
+|-------|-----------|-------------|-----|----------------------|
+| WT | untreated | Gene1 | 20.1 | 1 |
+| WT | untreated | Gene1 | 20.4 | 1 |
+| WT | untreated | Gene1 | 18.9 | 2 |
+| WT | treated | Gene1 | 18.3 | 1 |
+
+In this example, the first two rows are technical replicates of biological replicate 1 and will be averaged to a single CT before analysis. The third row is a distinct biological replicate (replicate 2) and will be kept separate.
+
+**Plots display each biological replicate as an individual dot.** Statistical tests (t-test, ANOVA, etc.) are computed on the biological replicate values — not on the mean across replicates.
 
 ### QuantStudio 7 raw export (auto-detected)
 

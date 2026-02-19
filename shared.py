@@ -157,6 +157,240 @@ def p_to_star(p: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Advanced statistical tests (ANOVA, Kruskal-Wallis, post-hoc)
+# ---------------------------------------------------------------------------
+
+def one_way_anova(*groups) -> tuple[float, float]:
+    """One-way ANOVA. Returns (F_stat, p_value) or (nan, nan) if < 2 valid groups."""
+    valid = [g for g in groups if len(g) >= 2]
+    if len(valid) < 2:
+        return np.nan, np.nan
+    try:
+        F, p = stats.f_oneway(*valid)
+        return float(F), float(p)
+    except Exception:
+        return np.nan, np.nan
+
+
+def kruskal_wallis(*groups) -> tuple[float, float]:
+    """Kruskal-Wallis test. Returns (H_stat, p_value) or (nan, nan)."""
+    valid = [g for g in groups if len(g) >= 1]
+    if len(valid) < 2:
+        return np.nan, np.nan
+    try:
+        H, p = stats.kruskal(*valid)
+        return float(H), float(p)
+    except Exception:
+        return np.nan, np.nan
+
+
+def tukey_hsd_posthoc(groups_dict: dict) -> pd.DataFrame:
+    """Tukey HSD post-hoc test.
+
+    Parameters
+    ----------
+    groups_dict : dict[str, np.ndarray]
+        Mapping of group label to array of values.
+
+    Returns
+    -------
+    pd.DataFrame with columns: group1, group2, p_adj, significance
+    """
+    labels = list(groups_dict.keys())
+    arrays = [np.asarray(groups_dict[k]) for k in labels]
+    valid_mask = [len(a) >= 2 for a in arrays]
+    if sum(valid_mask) < 2:
+        return pd.DataFrame(columns=["group1", "group2", "p_adj", "significance"])
+
+    valid_labels = [l for l, v in zip(labels, valid_mask) if v]
+    valid_arrays = [a for a, v in zip(arrays, valid_mask) if v]
+
+    try:
+        result = stats.tukey_hsd(*valid_arrays)
+    except Exception:
+        return pd.DataFrame(columns=["group1", "group2", "p_adj", "significance"])
+
+    rows = []
+    n = len(valid_labels)
+    for i in range(n):
+        for j in range(i + 1, n):
+            p = float(result.pvalue[i, j])
+            rows.append({
+                "group1": valid_labels[i],
+                "group2": valid_labels[j],
+                "p_adj": p,
+                "significance": p_to_star(p),
+            })
+    return pd.DataFrame(rows)
+
+
+def pairwise_welch_posthoc(groups_dict: dict) -> pd.DataFrame:
+    """Pairwise Welch t-tests with Bonferroni correction.
+
+    Parameters
+    ----------
+    groups_dict : dict[str, np.ndarray]
+        Mapping of group label to array of values.
+
+    Returns
+    -------
+    pd.DataFrame with columns: group1, group2, p_adj, significance
+    """
+    labels = list(groups_dict.keys())
+    raw_p = []
+    pair_labels = []
+    for i in range(len(labels)):
+        for j in range(i + 1, len(labels)):
+            g1 = np.asarray(groups_dict[labels[i]])
+            g2 = np.asarray(groups_dict[labels[j]])
+            _, p = welch_ttest(g1, g2)
+            raw_p.append(p)
+            pair_labels.append((labels[i], labels[j]))
+
+    adjusted = correct_pvalues(np.array(raw_p, dtype=float), method="bonferroni")
+    rows = []
+    for (g1, g2), p in zip(pair_labels, adjusted):
+        rows.append({
+            "group1": g1,
+            "group2": g2,
+            "p_adj": float(p),
+            "significance": p_to_star(float(p)),
+        })
+    return pd.DataFrame(rows)
+
+
+def dunns_posthoc(groups_dict: dict, correction: str = "bonferroni") -> pd.DataFrame:
+    """Dunn's post-hoc test (pairwise Mann-Whitney U with correction).
+
+    Parameters
+    ----------
+    groups_dict : dict[str, np.ndarray]
+        Mapping of group label to array of values.
+    correction : str
+        Correction method: 'bonferroni', 'bh', 'dunn_bonf', or 'dunn_bh'.
+
+    Returns
+    -------
+    pd.DataFrame with columns: group1, group2, p_adj, significance
+    """
+    corr_method = "bh" if "bh" in correction else "bonferroni"
+    labels = list(groups_dict.keys())
+    raw_p = []
+    pair_labels = []
+    for i in range(len(labels)):
+        for j in range(i + 1, len(labels)):
+            g1 = np.asarray(groups_dict[labels[i]])
+            g2 = np.asarray(groups_dict[labels[j]])
+            if len(g1) >= 1 and len(g2) >= 1:
+                try:
+                    _, p = stats.mannwhitneyu(g1, g2, alternative="two-sided")
+                    raw_p.append(float(p))
+                except Exception:
+                    raw_p.append(np.nan)
+            else:
+                raw_p.append(np.nan)
+            pair_labels.append((labels[i], labels[j]))
+
+    adjusted = correct_pvalues(np.array(raw_p, dtype=float), method=corr_method)
+    rows = []
+    for (g1, g2), p in zip(pair_labels, adjusted):
+        rows.append({
+            "group1": g1,
+            "group2": g2,
+            "p_adj": float(p),
+            "significance": p_to_star(float(p)),
+        })
+    return pd.DataFrame(rows)
+
+
+def two_way_anova(df: pd.DataFrame, value_col: str, factor1: str, factor2: str) -> pd.DataFrame:
+    """Two-way ANOVA using statsmodels OLS formula API.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data containing value_col, factor1, and factor2 columns.
+    value_col : str
+        Name of the response variable column.
+    factor1 : str
+        Name of the first factor column.
+    factor2 : str
+        Name of the second factor column.
+
+    Returns
+    -------
+    pd.DataFrame with columns: Factor, F, p_value, significance
+    """
+    try:
+        import statsmodels.formula.api as smf
+        from statsmodels.stats.anova import anova_lm
+
+        tmp = df[[value_col, factor1, factor2]].copy()
+        tmp.columns = ["value", "f1", "f2"]
+        tmp = tmp.dropna()
+
+        if len(tmp) < 4:
+            return pd.DataFrame(columns=["Factor", "F", "p_value", "significance"])
+
+        model = smf.ols("value ~ C(f1) + C(f2) + C(f1):C(f2)", data=tmp).fit()
+        anova_table = anova_lm(model, typ=2)
+
+        name_map = {
+            "C(f1)": factor1,
+            "C(f2)": factor2,
+            "C(f1):C(f2)": f"{factor1}:{factor2}",
+        }
+
+        rows = []
+        for idx, row in anova_table.iterrows():
+            if idx == "Residual":
+                continue
+            factor_name = name_map.get(idx, idx)
+            p = float(row["PR(>F)"])
+            rows.append({
+                "Factor": factor_name,
+                "F": round(float(row["F"]), 4),
+                "p_value": round(p, 4),
+                "significance": p_to_star(p),
+            })
+        return pd.DataFrame(rows)
+    except Exception:
+        return pd.DataFrame(columns=["Factor", "F", "p_value", "significance"])
+
+
+def _lookup_posthoc_pval(ph_df: pd.DataFrame, group_a: str, group_b: str) -> float:
+    """Find p_adj from post-hoc DataFrame for a given pair (order-independent)."""
+    if ph_df is None or ph_df.empty:
+        return np.nan
+    mask = (
+        ((ph_df["group1"] == group_a) & (ph_df["group2"] == group_b))
+        | ((ph_df["group1"] == group_b) & (ph_df["group2"] == group_a))
+    )
+    matches = ph_df[mask]
+    if matches.empty:
+        return np.nan
+    return float(matches.iloc[0]["p_adj"])
+
+
+def _run_posthoc(groups_dict: dict, stat_test: str, posthoc_test: str) -> pd.DataFrame:
+    """Dispatch to the appropriate post-hoc function.
+
+    Parameters
+    ----------
+    groups_dict : dict[str, np.ndarray]
+    stat_test : str
+        'anova1', 'anova2', or 'kruskal'
+    posthoc_test : str
+        'tukey', 'welch_bonf', 'dunn_bonf', or 'dunn_bh'
+    """
+    if stat_test == "kruskal":
+        return dunns_posthoc(groups_dict, correction=posthoc_test)
+    if posthoc_test == "tukey":
+        return tukey_hsd_posthoc(groups_dict)
+    return pairwise_welch_posthoc(groups_dict)
+
+
+# ---------------------------------------------------------------------------
 # Plot helpers
 # ---------------------------------------------------------------------------
 

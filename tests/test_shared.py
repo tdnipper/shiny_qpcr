@@ -19,6 +19,13 @@ from shared import (
     _transform_quantstudio_df,
     _is_quantstudio_export,
     import_file,
+    one_way_anova,
+    kruskal_wallis,
+    tukey_hsd_posthoc,
+    pairwise_welch_posthoc,
+    dunns_posthoc,
+    two_way_anova,
+    _lookup_posthoc_pval,
 )
 
 
@@ -204,6 +211,245 @@ class TestIsQuantstudioExport:
         path = str(tmp_path / "with_results.xlsx")
         wb.save(path)
         assert _is_quantstudio_export(path) is True
+
+
+class TestOneWayAnova:
+    def test_significant(self):
+        g1 = np.array([10.0, 11.0, 10.5])
+        g2 = np.array([20.0, 21.0, 20.5])
+        g3 = np.array([30.0, 31.0, 30.5])
+        F, p = one_way_anova(g1, g2, g3)
+        assert not np.isnan(F)
+        assert p < 0.05
+
+    def test_not_significant(self):
+        g1 = np.array([10.0, 10.1, 10.2])
+        g2 = np.array([10.1, 10.2, 10.3])
+        g3 = np.array([10.2, 10.3, 10.4])
+        F, p = one_way_anova(g1, g2, g3)
+        assert not np.isnan(F)
+        assert p > 0.05
+
+    def test_insufficient_data_returns_nan(self):
+        g1 = np.array([10.0])  # only 1 value — too few for valid group
+        F, p = one_way_anova(g1)
+        assert np.isnan(F)
+        assert np.isnan(p)
+
+    def test_single_valid_group_returns_nan(self):
+        g1 = np.array([10.0, 11.0])
+        F, p = one_way_anova(g1)
+        assert np.isnan(F)
+        assert np.isnan(p)
+
+
+class TestKruskalWallis:
+    def test_significant(self):
+        g1 = np.array([1.0, 2.0, 1.5])
+        g2 = np.array([10.0, 11.0, 10.5])
+        H, p = kruskal_wallis(g1, g2)
+        assert not np.isnan(H)
+        assert p < 0.05
+
+    def test_not_significant(self):
+        g1 = np.array([10.0, 10.1, 10.2])
+        g2 = np.array([10.1, 10.2, 10.3])
+        H, p = kruskal_wallis(g1, g2)
+        assert not np.isnan(H)
+        assert p > 0.05
+
+    def test_insufficient_groups_returns_nan(self):
+        g1 = np.array([10.0, 11.0])
+        H, p = kruskal_wallis(g1)
+        assert np.isnan(H)
+        assert np.isnan(p)
+
+
+class TestTukeyHsdPosthoc:
+    def test_correct_columns(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+            "C": np.array([30.0, 30.5, 30.2]),
+        }
+        result = tukey_hsd_posthoc(groups)
+        assert set(result.columns) == {"group1", "group2", "p_adj", "significance"}
+
+    def test_number_of_pairs(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+            "C": np.array([30.0, 30.5, 30.2]),
+        }
+        result = tukey_hsd_posthoc(groups)
+        # 3 groups → 3 pairs
+        assert len(result) == 3
+
+    def test_significant_pair(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([30.0, 30.5, 30.2]),
+        }
+        result = tukey_hsd_posthoc(groups)
+        assert result.iloc[0]["p_adj"] < 0.05
+
+    def test_insufficient_data_returns_empty(self):
+        groups = {"A": np.array([10.0])}
+        result = tukey_hsd_posthoc(groups)
+        assert result.empty
+
+
+class TestPairwiseWelchPosthoc:
+    def test_correct_columns(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+        }
+        result = pairwise_welch_posthoc(groups)
+        assert set(result.columns) == {"group1", "group2", "p_adj", "significance"}
+
+    def test_bonferroni_applied(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+            "C": np.array([30.0, 30.5, 30.2]),
+        }
+        result = pairwise_welch_posthoc(groups)
+        # 3 pairs — Bonferroni multiplies by 3; at least one pair should be significant
+        assert len(result) == 3
+        assert all(result["p_adj"] <= 1.0)
+
+    def test_significant_pair(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([30.0, 30.5, 30.2]),
+        }
+        result = pairwise_welch_posthoc(groups)
+        assert result.iloc[0]["p_adj"] < 0.05
+
+
+class TestDunnsPosthoc:
+    def test_correct_columns(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+        }
+        result = dunns_posthoc(groups)
+        assert set(result.columns) == {"group1", "group2", "p_adj", "significance"}
+
+    def test_bonferroni_correction(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+            "C": np.array([30.0, 30.5, 30.2]),
+        }
+        result = dunns_posthoc(groups, correction="bonferroni")
+        assert len(result) == 3
+        assert all(result["p_adj"] <= 1.0)
+
+    def test_bh_correction(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+            "C": np.array([30.0, 30.5, 30.2]),
+        }
+        result_bh = dunns_posthoc(groups, correction="bh")
+        result_bonf = dunns_posthoc(groups, correction="bonferroni")
+        # BH should be <= Bonferroni (less conservative)
+        assert all(result_bh["p_adj"].values <= result_bonf["p_adj"].values + 1e-10)
+
+    def test_dunn_bonf_alias(self):
+        groups = {
+            "A": np.array([10.0, 10.5, 10.2]),
+            "B": np.array([20.0, 20.5, 20.2]),
+        }
+        result = dunns_posthoc(groups, correction="dunn_bonf")
+        assert len(result) == 1
+
+    def test_significant_pair(self):
+        # Need n>=5 per group: Mann-Whitney min p-value with n=3 is 0.1 (combinatorics limit)
+        groups = {
+            "A": np.array([1.0, 1.1, 1.2, 1.3, 1.4]),
+            "B": np.array([100.0, 100.1, 100.2, 100.3, 100.4]),
+        }
+        result = dunns_posthoc(groups)
+        assert result.iloc[0]["p_adj"] < 0.05
+
+
+class TestTwoWayAnova:
+    @pytest.fixture
+    def factorial_df(self):
+        # 2x2 factorial: Group (WT/KO) × Condition (ctrl/treated)
+        data = []
+        np.random.seed(42)
+        for grp, base in [("WT", 20.0), ("KO", 25.0)]:
+            for cond, offset in [("ctrl", 0.0), ("treated", 5.0)]:
+                for _ in range(4):
+                    data.append({
+                        "Group": grp,
+                        "Condition": cond,
+                        "CT": base + offset + np.random.normal(0, 0.5),
+                    })
+        return pd.DataFrame(data)
+
+    def test_correct_columns(self, factorial_df):
+        result = two_way_anova(factorial_df, "CT", "Group", "Condition")
+        assert set(result.columns) == {"Factor", "F", "p_value", "significance"}
+
+    def test_factor_names_in_result(self, factorial_df):
+        result = two_way_anova(factorial_df, "CT", "Group", "Condition")
+        factors = result["Factor"].tolist()
+        assert "Group" in factors
+        assert "Condition" in factors
+        assert "Group:Condition" in factors
+
+    def test_significant_factors(self, factorial_df):
+        result = two_way_anova(factorial_df, "CT", "Group", "Condition")
+        group_row = result[result["Factor"] == "Group"].iloc[0]
+        cond_row = result[result["Factor"] == "Condition"].iloc[0]
+        assert group_row["p_value"] < 0.05
+        assert cond_row["p_value"] < 0.05
+
+    def test_insufficient_data_returns_empty(self):
+        df = pd.DataFrame({
+            "Group": ["WT"],
+            "Condition": ["ctrl"],
+            "CT": [20.0],
+        })
+        result = two_way_anova(df, "CT", "Group", "Condition")
+        assert result.empty
+
+
+class TestLookupPosthocPval:
+    @pytest.fixture
+    def ph_df(self):
+        return pd.DataFrame({
+            "group1": ["A", "A", "B"],
+            "group2": ["B", "C", "C"],
+            "p_adj": [0.01, 0.5, 0.03],
+            "significance": ["*", "ns", "*"],
+        })
+
+    def test_forward_order(self, ph_df):
+        p = _lookup_posthoc_pval(ph_df, "A", "B")
+        assert abs(p - 0.01) < 1e-10
+
+    def test_reverse_order(self, ph_df):
+        p = _lookup_posthoc_pval(ph_df, "B", "A")
+        assert abs(p - 0.01) < 1e-10
+
+    def test_missing_pair_returns_nan(self, ph_df):
+        p = _lookup_posthoc_pval(ph_df, "A", "D")
+        assert np.isnan(p)
+
+    def test_empty_df_returns_nan(self):
+        ph_df = pd.DataFrame(columns=["group1", "group2", "p_adj", "significance"])
+        p = _lookup_posthoc_pval(ph_df, "A", "B")
+        assert np.isnan(p)
+
+    def test_none_returns_nan(self):
+        p = _lookup_posthoc_pval(None, "A", "B")
+        assert np.isnan(p)
 
 
 def _build_quantstudio_xlsx(tmp_path, rows):

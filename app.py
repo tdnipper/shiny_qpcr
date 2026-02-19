@@ -80,6 +80,30 @@ app_ui = ui.page_sidebar(
                     },
                     selected="none",
                 ),
+                ui.input_select(
+                    "stat_test",
+                    "Statistical test:",
+                    choices={
+                        "ttest":   "Welch / one-sample t-test",
+                        "anova1":  "One-way ANOVA",
+                        "kruskal": "Kruskal-Wallis (non-parametric)",
+                        "anova2":  "Two-way ANOVA (Group × Condition)",
+                        "none":    "None (no statistical test)",
+                    },
+                    selected="ttest",
+                ),
+                ui.panel_conditional(
+                    "input.stat_test !== 'ttest' && input.stat_test !== 'none'",
+                    ui.input_select(
+                        "posthoc_test",
+                        "Post-hoc test:",
+                        choices={
+                            "tukey":      "Tukey HSD",
+                            "welch_bonf": "Pairwise Welch t-tests (Bonferroni)",
+                        },
+                        selected="tukey",
+                    ),
+                ),
             ),
             open=False,
         ),
@@ -186,6 +210,28 @@ def server(input, output, session):
     def correction_method():
         return input.correction_method()
 
+    @reactive.calc
+    def stat_test():
+        return input.stat_test()
+
+    @reactive.calc
+    def posthoc_test():
+        return input.posthoc_test()
+
+    @reactive.effect
+    @reactive.event(input.stat_test)
+    def update_posthoc_choices():
+        if input.stat_test() == "kruskal":
+            ui.update_select("posthoc_test", choices={
+                "dunn_bonf": "Dunn's test (Bonferroni)",
+                "dunn_bh":   "Dunn's test (Benjamini-Hochberg)",
+            }, selected="dunn_bonf")
+        else:
+            ui.update_select("posthoc_test", choices={
+                "tukey":      "Tukey HSD",
+                "welch_bonf": "Pairwise Welch t-tests (Bonferroni)",
+            }, selected="tukey")
+
     # --- Populate selectize dropdowns when data changes ---
 
     @reactive.effect
@@ -245,6 +291,8 @@ def server(input, output, session):
         control_reactive=control_ddct,
         plot_targets_reactive=plot_targets,
         correction_method_reactive=correction_method,
+        stat_test_reactive=stat_test,
+        posthoc_reactive=posthoc_test,
     )
 
     dct_server(
@@ -253,6 +301,8 @@ def server(input, output, session):
         control_reactive=control_dct,
         plot_targets_reactive=plot_targets,
         correction_method_reactive=correction_method,
+        stat_test_reactive=stat_test,
+        posthoc_reactive=posthoc_test,
     )
 
     enrichment_server(
@@ -264,6 +314,8 @@ def server(input, output, session):
         igg_group_reactive=igg_group,
         plot_targets_reactive=plot_targets,
         correction_method_reactive=correction_method,
+        stat_test_reactive=stat_test,
+        posthoc_reactive=posthoc_test,
     )
 
 

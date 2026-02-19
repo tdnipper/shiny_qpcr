@@ -15,12 +15,22 @@ from shared import (
     export_to_excel,
     export_to_csv,
     apply_classic_theme,
+    _run_posthoc,
+    _lookup_posthoc_pval,
+    two_way_anova,
 )
 
 
 @module.ui
 def enrichment_ui():
     return ui.TagList(
+        ui.panel_conditional(
+            "input.stat_test === 'anova2'",
+            ui.card(
+                ui.card_header("Two-Way ANOVA Summary (Group × Condition)"),
+                ui.output_data_frame("anova2_table"),
+            ),
+        ),
         ui.card(
             ui.card_header("Enrichment Results"),
             ui.output_data_frame("results_table"),
@@ -49,6 +59,8 @@ def enrichment_server(
     igg_group_reactive,
     plot_targets_reactive,
     correction_method_reactive,
+    stat_test_reactive,
+    posthoc_reactive,
 ):
     """Server logic for RIP-qPCR / ChIP-qPCR enrichment analysis.
 
@@ -68,6 +80,10 @@ def enrichment_server(
         Returns the list of target names selected for plotting.
     correction_method_reactive : reactive.Calc
         Returns the p-value correction method string.
+    stat_test_reactive : reactive.Calc
+        Returns the selected statistical test string.
+    posthoc_reactive : reactive.Calc
+        Returns the selected post-hoc test string.
     """
 
     @reactive.calc
@@ -90,6 +106,8 @@ def enrichment_server(
         if df is None or not input_group:
             return None
 
+        stat_test = stat_test_reactive()
+        posthoc_test = posthoc_reactive()
         dilution = get_dilution()
         targets = df["Target Name"].unique().tolist()
         groups = df["Group"].unique().tolist()
@@ -115,6 +133,21 @@ def enrichment_server(
                 if len(ct_input) == 0:
                     continue
 
+                # For ANOVA/KW: compute post-hoc once per target+group
+                if stat_test not in ("ttest", "none"):
+                    groups_data = {input_group: ct_input}
+                    for ip_cond in ip_conditions:
+                        ct_ip = df[
+                            (df["Target Name"] == target)
+                            & (df["Group"] == grp)
+                            & (df["Condition"] == ip_cond)
+                        ]["CT"].values
+                        if len(ct_ip) > 0:
+                            groups_data[ip_cond] = ct_ip
+                    ph_df = _run_posthoc(groups_data, stat_test, posthoc_test)
+                else:
+                    ph_df = None
+
                 for ip_cond in ip_conditions:
                     ct_ip = df[
                         (df["Target Name"] == target)
@@ -127,8 +160,12 @@ def enrichment_server(
 
                     result = calculate_percent_input(ct_ip, ct_input, dilution)
 
-                    # Stat test: Welch's t-test on CT values (IP vs Input)
-                    _, p_val = welch_ttest(ct_ip, ct_input)
+                    if stat_test == "none":
+                        p_val = np.nan
+                    elif stat_test == "ttest":
+                        _, p_val = welch_ttest(ct_ip, ct_input)
+                    else:
+                        p_val = _lookup_posthoc_pval(ph_df, input_group, ip_cond)
 
                     rows.append(
                         {
@@ -166,6 +203,8 @@ def enrichment_server(
         if df is None or not input_group or not igg_group:
             return None
 
+        stat_test = stat_test_reactive()
+        posthoc_test = posthoc_reactive()
         dilution = get_dilution()
         targets = df["Target Name"].unique().tolist()
         groups = df["Group"].unique().tolist()
@@ -196,6 +235,22 @@ def enrichment_server(
                 if len(ct_input) == 0 or len(ct_igg) == 0:
                     continue
 
+                # For ANOVA/KW: compute post-hoc once per target+group
+                # Reference is IgG; compare each IP condition to IgG
+                if stat_test not in ("ttest", "none"):
+                    groups_data = {igg_group: ct_igg}
+                    for ip_cond in ip_conditions:
+                        ct_ip = df[
+                            (df["Target Name"] == target)
+                            & (df["Group"] == grp)
+                            & (df["Condition"] == ip_cond)
+                        ]["CT"].values
+                        if len(ct_ip) > 0:
+                            groups_data[ip_cond] = ct_ip
+                    ph_df = _run_posthoc(groups_data, stat_test, posthoc_test)
+                else:
+                    ph_df = None
+
                 for ip_cond in ip_conditions:
                     ct_ip = df[
                         (df["Target Name"] == target)
@@ -210,8 +265,12 @@ def enrichment_server(
                         ct_ip, ct_input, ct_igg, ct_input_igg, dilution
                     )
 
-                    # Stat test: Welch's t-test comparing IP to IgG CTs
-                    _, p_val = welch_ttest(ct_ip, ct_igg)
+                    if stat_test == "none":
+                        p_val = np.nan
+                    elif stat_test == "ttest":
+                        _, p_val = welch_ttest(ct_ip, ct_igg)
+                    else:
+                        p_val = _lookup_posthoc_pval(ph_df, igg_group, ip_cond)
 
                     rows.append(
                         {
@@ -240,6 +299,27 @@ def enrichment_server(
         )
         result_df["significance"] = result_df["p_value"].apply(p_to_star)
         return result_df
+
+    @reactive.calc
+    def anova2_results():
+        if stat_test_reactive() != "anova2":
+            return None
+        df = df_reactive()
+        if df is None:
+            return None
+
+        targets = df["Target Name"].unique().tolist()
+        all_rows = []
+        for target in targets:
+            target_df = df[df["Target Name"] == target].copy()
+            anova_df = two_way_anova(target_df, "CT", "Group", "Condition")
+            if not anova_df.empty:
+                anova_df.insert(0, "Target Name", target)
+                all_rows.append(anova_df)
+
+        if not all_rows:
+            return None
+        return pd.concat(all_rows, ignore_index=True)
 
     @reactive.calc
     def active_results():
@@ -276,6 +356,10 @@ def enrichment_server(
     @render.data_frame
     def results_table():
         return active_results()
+
+    @render.data_frame
+    def anova2_table():
+        return anova2_results()
 
     @render_widget
     def enrichment_plot():

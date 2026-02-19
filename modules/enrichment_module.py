@@ -328,6 +328,83 @@ def enrichment_server(
             return fold_enrichment_results()
         return pct_input_results()
 
+    @reactive.calc
+    def enrichment_individual_reps():
+        df = df_reactive()
+        summary = active_results()
+        input_group = input_group_reactive()
+        if df is None or summary is None or not input_group:
+            return None
+
+        normalize_igg = normalize_igg_reactive()
+        igg_group = igg_group_reactive()
+        dilution = get_dilution()
+        adjustment = np.log2(dilution)
+
+        targets = df["Target Name"].unique().tolist()
+        groups = df["Group"].unique().tolist()
+        ip_conditions = [c for c in df["Condition"].unique() if c != input_group]
+        if normalize_igg and igg_group:
+            ip_conditions = [c for c in ip_conditions if c != igg_group]
+
+        rows = []
+        for target in targets:
+            for grp in groups:
+                ct_input_rows = df[
+                    (df["Target Name"] == target)
+                    & (df["Group"] == grp)
+                    & (df["Condition"] == input_group)
+                ]
+                if ct_input_rows.empty:
+                    continue
+                mean_input = ct_input_rows["CT"].mean()
+                adjusted_input = mean_input - adjustment
+
+                if normalize_igg and igg_group:
+                    ct_igg_rows = df[
+                        (df["Target Name"] == target)
+                        & (df["Group"] == grp)
+                        & (df["Condition"] == igg_group)
+                    ]
+                    if ct_igg_rows.empty:
+                        continue
+                    mean_igg_input = mean_input  # same group's input
+                    dct_igg_mean = ct_igg_rows["CT"].mean() - (mean_igg_input - adjustment)
+
+                for ip_cond in ip_conditions:
+                    ip_rows = df[
+                        (df["Target Name"] == target)
+                        & (df["Group"] == grp)
+                        & (df["Condition"] == ip_cond)
+                    ]
+                    if ip_rows.empty:
+                        continue
+                    row_id = f"{target}_{grp}_{ip_cond}"
+                    for _, r in ip_rows.iterrows():
+                        if normalize_igg and igg_group:
+                            dct_ip = r["CT"] - (mean_input - adjustment)
+                            ddct = dct_ip - dct_igg_mean
+                            val = 2.0 ** -ddct
+                            val_col = "fold_enrichment_rep"
+                        else:
+                            val = 100.0 * (2.0 ** (adjusted_input - r["CT"]))
+                            val_col = "pct_input_rep"
+                        rows.append({
+                            "id": row_id,
+                            "Target Name": target,
+                            "Group": grp,
+                            "IP Condition": ip_cond,
+                            "Biological Replicate": r.get("Biological Replicate", ""),
+                            val_col: val,
+                        })
+
+        if not rows:
+            return None
+
+        reps_df = pd.DataFrame(rows)
+        sig = summary[["id", "significance"]].drop_duplicates()
+        return reps_df.merge(sig, on="id", how="left")
+
     # ---- Downloads ----
 
     @render.download(filename="enrichment_results.xlsx")
@@ -353,6 +430,14 @@ def enrichment_server(
         mask = data["Target Name"].isin(list(targets))
         return data[mask]
 
+    @reactive.calc
+    def plot_data_reps():
+        data = enrichment_individual_reps()
+        targets = plot_targets_reactive()
+        if data is None or not targets:
+            return None
+        return data[data["Target Name"].isin(list(targets))]
+
     @render.data_frame
     def results_table():
         return active_results()
@@ -363,52 +448,53 @@ def enrichment_server(
 
     @render_widget
     def enrichment_plot():
-        data = plot_data()
-        if data is None or data.empty:
+        reps = plot_data_reps()
+        summary = plot_data()
+        if reps is None or reps.empty:
             return apply_classic_theme(px.scatter(title="No data to display"))
 
         normalize_igg = normalize_igg_reactive()
 
         if normalize_igg:
-            y_col = "fold_enrichment"
-            y_err = "fold_enrichment_SE"
-            y_label = "Fold Enrichment over IgG (mean +/- SE)"
+            value_col = "fold_enrichment_rep"
+            y_label = "Fold Enrichment over IgG"
             title = "Fold Enrichment over IgG"
             ref_line = 1.0
         else:
-            y_col = "pct_input"
-            y_err = "pct_input_SE"
-            y_label = "% Input (mean +/- SE)"
+            value_col = "pct_input_rep"
+            y_label = "% Input"
             title = "Percent Input"
             ref_line = None
 
-        fig = px.scatter(
-            data,
+        fig = px.strip(
+            reps,
             x="id",
-            y=y_col,
+            y=value_col,
             color="Target Name",
-            error_y=y_err,
-            labels={y_col: y_label, "id": ""},
+            stripmode="overlay",
+            labels={value_col: y_label, "id": ""},
             title=title,
         )
-        fig.update_traces(marker=dict(size=10))
+        fig.update_traces(jitter=0.3, marker=dict(size=8, opacity=0.8))
         if ref_line is not None:
             fig.add_hline(y=ref_line, line_dash="dash", line_color="gray")
-
         fig.update_layout(showlegend=False)
         apply_classic_theme(fig)
 
-        # Add significance annotations
-        for _, row in data.iterrows():
-            star = row.get("significance", "")
-            if star and star not in ("", "ns"):
-                fig.add_annotation(
-                    x=row["id"],
-                    y=row[y_col] + row[y_err] * 1.3,
-                    text=star,
-                    showarrow=False,
-                    font=dict(size=14),
-                )
+        if summary is not None and not summary.empty:
+            summary_y_col = "fold_enrichment" if normalize_igg else "pct_input"
+            max_per_id = reps.groupby("id")[value_col].max()
+            for _, row in summary.iterrows():
+                star = row.get("significance", "")
+                if star and star not in ("", "ns"):
+                    y_pos = max_per_id.get(row["id"], row[summary_y_col]) * 1.15
+                    fig.add_annotation(
+                        x=row["id"],
+                        y=y_pos,
+                        text=star,
+                        showarrow=False,
+                        font=dict(size=14),
+                    )
         return fig
 
     return {"results": active_results}

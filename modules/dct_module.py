@@ -207,6 +207,68 @@ def dct_server(
     # ---- Plots ----
 
     @reactive.calc
+    def dct_individual_reps():
+        summary = dct_results()
+        df = df_reactive()
+        if summary is None or df is None:
+            return None
+
+        targets = df["Target Name"].unique().tolist()
+        groups = df["Group"].unique().tolist()
+        conditions = df["Condition"].unique().tolist()
+        control = control_reactive()
+
+        rows = []
+        for target in targets:
+            for grp in groups:
+                ct_control_rows = df[
+                    (df["Target Name"] == target)
+                    & (df["Group"] == grp)
+                    & (df["Condition"] == control)
+                ]
+                if ct_control_rows.empty:
+                    continue
+                mean_ctrl = ct_control_rows["CT"].mean()
+
+                for cond in conditions:
+                    if cond == control:
+                        continue
+                    exp_rows = df[
+                        (df["Target Name"] == target)
+                        & (df["Group"] == grp)
+                        & (df["Condition"] == cond)
+                    ]
+                    if exp_rows.empty:
+                        continue
+                    row_id = f"{target}_{grp}_{cond}"
+                    for _, r in exp_rows.iterrows():
+                        fc = 2.0 ** -(r["CT"] - mean_ctrl)
+                        rows.append({
+                            "id": row_id,
+                            "Target Name": target,
+                            "Group": grp,
+                            "Condition": cond,
+                            "Biological Replicate": r.get("Biological Replicate", ""),
+                            "fold_change_rep": fc,
+                            "pct_control_rep": fc * 100.0,
+                        })
+
+        if not rows:
+            return None
+
+        reps_df = pd.DataFrame(rows)
+        sig = summary[["id", "significance"]].drop_duplicates()
+        return reps_df.merge(sig, on="id", how="left")
+
+    @reactive.calc
+    def plot_data_reps():
+        data = dct_individual_reps()
+        targets = plot_targets_reactive()
+        if data is None or not targets:
+            return None
+        return data[data["Target Name"].isin(list(targets))]
+
+    @reactive.calc
     def plot_data():
         data = dct_results()
         targets = plot_targets_reactive()
@@ -225,62 +287,74 @@ def dct_server(
 
     @render_widget
     def foldchange_bar():
-        data = plot_data()
-        if data is None or data.empty:
+        reps = plot_data_reps()
+        summary = plot_data()
+        if reps is None or reps.empty:
             return apply_classic_theme(px.scatter(title="No data to display"))
 
-        fig = px.scatter(
-            data,
+        fig = px.strip(
+            reps,
             x="id",
-            y="fold_change",
+            y="fold_change_rep",
             color="Target Name",
-            error_y="fold_change_SE",
-            labels={
-                "fold_change": "Fold Change (mean +/- SE)",
-                "id": "",
-            },
+            stripmode="overlay",
+            labels={"fold_change_rep": "Fold Change", "id": ""},
             title="Fold Change vs Control (2^-dCT)",
         )
-        fig.update_traces(marker=dict(size=10))
+        fig.update_traces(jitter=0.3, marker=dict(size=8, opacity=0.8))
         fig.add_hline(y=1.0, line_dash="dash", line_color="gray")
         fig.update_layout(showlegend=False)
         apply_classic_theme(fig)
 
-        # Add significance annotations
-        for _, row in data.iterrows():
-            star = row.get("significance", "")
-            if star and star not in ("", "ns"):
-                fig.add_annotation(
-                    x=row["id"],
-                    y=row["fold_change"] + row["fold_change_SE"] * 1.3,
-                    text=star,
-                    showarrow=False,
-                    font=dict(size=14),
-                )
+        if summary is not None and not summary.empty:
+            max_per_id = reps.groupby("id")["fold_change_rep"].max()
+            for _, row in summary.iterrows():
+                star = row.get("significance", "")
+                if star and star not in ("", "ns"):
+                    y_pos = max_per_id.get(row["id"], row["fold_change"]) * 1.15
+                    fig.add_annotation(
+                        x=row["id"],
+                        y=y_pos,
+                        text=star,
+                        showarrow=False,
+                        font=dict(size=14),
+                    )
         return fig
 
     @render_widget
     def pct_control_bar():
-        data = plot_data()
-        if data is None or data.empty:
+        reps = plot_data_reps()
+        summary = plot_data()
+        if reps is None or reps.empty:
             return apply_classic_theme(px.scatter(title="No data to display"))
 
-        fig = px.scatter(
-            data,
+        fig = px.strip(
+            reps,
             x="id",
-            y="pct_control",
+            y="pct_control_rep",
             color="Target Name",
-            error_y="pct_control_SE",
-            labels={
-                "pct_control": "% of Control (mean +/- SE)",
-                "id": "",
-            },
+            stripmode="overlay",
+            labels={"pct_control_rep": "% of Control", "id": ""},
             title="Expression as Percent of Control",
         )
-        fig.update_traces(marker=dict(size=10))
+        fig.update_traces(jitter=0.3, marker=dict(size=8, opacity=0.8))
         fig.add_hline(y=100.0, line_dash="dash", line_color="gray")
         fig.update_layout(showlegend=False)
         apply_classic_theme(fig)
+
+        if summary is not None and not summary.empty:
+            max_per_id = reps.groupby("id")["pct_control_rep"].max()
+            for _, row in summary.iterrows():
+                star = row.get("significance", "")
+                if star and star not in ("", "ns"):
+                    y_pos = max_per_id.get(row["id"], row["pct_control"]) * 1.15
+                    fig.add_annotation(
+                        x=row["id"],
+                        y=y_pos,
+                        text=star,
+                        showarrow=False,
+                        font=dict(size=14),
+                    )
         return fig
 
     return {"results": dct_results}

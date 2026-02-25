@@ -7,19 +7,20 @@ def calculate_dct_between_groups(
 ) -> dict:
     """Simple fold-change between two groups for the same target.
 
-    dCT  = mean(CT_experimental) - mean(CT_control)
-    Fold change = 2^(-dCT)
-    % of control = fold_change * 100
+    Per experimental bio rep:
+        dCT_rep = CT_experimental_rep - mean(CT_control)
+        fold_change_rep = 2^(-dCT_rep)
 
-    Error is propagated via SEM and the delta method for the
-    exponential transform.
+    Summary values are the mean and SE of the per-rep fold change values.
+    Groups are treated as unpaired; each experimental bio rep is independently
+    compared to the grand mean of the control group.
 
     Parameters
     ----------
     ct_experimental : array-like
-        CT values for the experimental group.
+        CT values for the experimental group, one per biological replicate.
     ct_control : array-like
-        CT values for the control group.
+        CT values for the control group, one per biological replicate.
 
     Returns
     -------
@@ -31,25 +32,17 @@ def calculate_dct_between_groups(
     ct_experimental = np.asarray(ct_experimental, dtype=float)
     ct_control = np.asarray(ct_control, dtype=float)
 
-    mean_exp = np.mean(ct_experimental)
     mean_ctrl = np.mean(ct_control)
 
-    sem_exp = (
-        np.std(ct_experimental, ddof=1) / np.sqrt(len(ct_experimental))
-        if len(ct_experimental) > 1
-        else 0.0
-    )
-    sem_ctrl = (
-        np.std(ct_control, ddof=1) / np.sqrt(len(ct_control))
-        if len(ct_control) > 1
-        else 0.0
-    )
+    # Per-rep dCT and fold change for experimental group
+    dct_per_rep = ct_experimental - mean_ctrl
+    fc_per_rep = 2.0 ** (-dct_per_rep)
 
-    dct = mean_exp - mean_ctrl
-    dct_sem = np.sqrt(sem_exp ** 2 + sem_ctrl ** 2)
-
-    fold_change = 2.0 ** (-dct)
-    fold_change_se = np.log(2) * fold_change * dct_sem
+    n = len(fc_per_rep)
+    dct = np.mean(dct_per_rep)
+    dct_sem = np.std(dct_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
+    fold_change = np.mean(fc_per_rep)
+    fold_change_se = np.std(fc_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
 
     pct_control = fold_change * 100.0
     pct_control_se = fold_change_se * 100.0

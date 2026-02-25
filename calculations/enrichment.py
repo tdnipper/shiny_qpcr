@@ -8,15 +8,21 @@ def calculate_percent_input(
 ) -> dict:
     """Percent-Input method for RIP-qPCR / ChIP-qPCR.
 
-    Adjusted_CT_input = CT_input - log2(dilution_factor)
-    % Input = 100 * 2^(Adjusted_CT_input - CT_IP)
+    ct_ip and ct_input must be paired arrays of equal length — one element per
+    biological replicate, already averaged over technical replicates.
+
+    Per bio rep:
+        dCT = CT_IP - (CT_input - log2(dilution_factor))
+        % Input = 100 * 2^(-dCT)
+
+    Summary values are the mean and SE of the per-bio-rep % Input values.
 
     Parameters
     ----------
     ct_ip : array-like
-        CT values for the IP (immunoprecipitation) sample.
+        CT values for the IP sample, one per biological replicate.
     ct_input : array-like
-        CT values for the Input sample.
+        CT values for the Input sample, paired to ct_ip by biological replicate.
     dilution_factor : float
         Dilution factor of the input fraction (e.g. 10 for 10 % input).
 
@@ -29,29 +35,21 @@ def calculate_percent_input(
     ct_input = np.asarray(ct_input, dtype=float)
 
     adjustment = np.log2(dilution_factor)
-    adjusted_ct_input_mean = np.mean(ct_input) - adjustment
 
-    sem_input = (
-        np.std(ct_input, ddof=1) / np.sqrt(len(ct_input))
-        if len(ct_input) > 1
-        else 0.0
-    )
-    sem_ip = (
-        np.std(ct_ip, ddof=1) / np.sqrt(len(ct_ip))
-        if len(ct_ip) > 1
-        else 0.0
-    )
+    # Per-bio-rep dCT and % Input
+    delta_per_rep = (ct_input - adjustment) - ct_ip
+    pct_input_per_rep = 100.0 * (2.0 ** delta_per_rep)
 
-    delta = adjusted_ct_input_mean - np.mean(ct_ip)
-    delta_sem = np.sqrt(sem_input ** 2 + sem_ip ** 2)
-
-    pct_input = 100.0 * (2.0 ** delta)
-    pct_input_se = np.log(2) * pct_input * delta_sem
+    n = len(pct_input_per_rep)
+    pct_input_mean = np.mean(pct_input_per_rep)
+    pct_input_se = np.std(pct_input_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
+    delta_mean = np.mean(delta_per_rep)
+    delta_sem = np.std(delta_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
 
     return {
-        "pct_input": pct_input,
+        "pct_input": pct_input_mean,
         "pct_input_SE": pct_input_se,
-        "delta": delta,
+        "delta": delta_mean,
         "delta_SEM": delta_sem,
     }
 
@@ -65,21 +63,27 @@ def calculate_fold_enrichment(
 ) -> dict:
     """Fold enrichment normalized to IgG for RIP-qPCR / ChIP-qPCR.
 
-    dCT_IP  = CT_IP  - Adjusted_CT_input(IP)
-    dCT_IgG = CT_IgG - Adjusted_CT_input(IgG)
-    ddCT    = dCT_IP - dCT_IgG
-    Fold enrichment = 2^(-ddCT)
+    All four arrays must be paired by biological replicate (equal length),
+    already averaged over technical replicates.
+
+    Per bio rep:
+        dCT_IP  = CT_IP  - (CT_input - log2(dilution_factor))
+        dCT_IgG = CT_IgG - (CT_input - log2(dilution_factor))
+        ddCT    = dCT_IP - dCT_IgG
+        Fold enrichment = 2^(-ddCT)
+
+    Summary values are the mean and SE of the per-bio-rep fold enrichment values.
 
     Parameters
     ----------
     ct_ip : array-like
-        CT values for the antibody-of-interest IP.
+        CT values for the antibody-of-interest IP, one per biological replicate.
     ct_input_for_ip : array-like
-        CT values for the Input sample paired with the IP.
+        CT values for the Input paired with ct_ip by biological replicate.
     ct_igg : array-like
-        CT values for the IgG (negative control) IP.
+        CT values for the IgG (negative control) IP, one per biological replicate.
     ct_input_for_igg : array-like
-        CT values for the Input sample paired with IgG.
+        CT values for the Input paired with ct_igg by biological replicate.
     dilution_factor : float
         Dilution factor of the input fraction.
 
@@ -88,25 +92,26 @@ def calculate_fold_enrichment(
     dict with keys:
         ddCT, ddCT_SEM, fold_enrichment, fold_enrichment_SE
     """
-    arrays = [ct_ip, ct_input_for_ip, ct_igg, ct_input_for_igg]
-    arrays = [np.asarray(a, dtype=float) for a in arrays]
-    ct_ip, ct_input_for_ip, ct_igg, ct_input_for_igg = arrays
+    ct_ip = np.asarray(ct_ip, dtype=float)
+    ct_input_for_ip = np.asarray(ct_input_for_ip, dtype=float)
+    ct_igg = np.asarray(ct_igg, dtype=float)
+    ct_input_for_igg = np.asarray(ct_input_for_igg, dtype=float)
 
     adjustment = np.log2(dilution_factor)
 
-    dct_ip = np.mean(ct_ip) - (np.mean(ct_input_for_ip) - adjustment)
-    dct_igg = np.mean(ct_igg) - (np.mean(ct_input_for_igg) - adjustment)
+    # Per-bio-rep dCT for IP and IgG
+    dct_ip_per_rep = ct_ip - (ct_input_for_ip - adjustment)
+    dct_igg_per_rep = ct_igg - (ct_input_for_igg - adjustment)
 
-    ddct = dct_ip - dct_igg
+    # Per-bio-rep ddCT and fold enrichment
+    ddct_per_rep = dct_ip_per_rep - dct_igg_per_rep
+    fe_per_rep = 2.0 ** (-ddct_per_rep)
 
-    sems = []
-    for arr in arrays:
-        sem = np.std(arr, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else 0.0
-        sems.append(sem)
-    ddct_sem = np.sqrt(sum(s ** 2 for s in sems))
-
-    fold_enrichment = 2.0 ** (-ddct)
-    fold_enrichment_se = np.log(2) * fold_enrichment * ddct_sem
+    n = len(fe_per_rep)
+    fold_enrichment = np.mean(fe_per_rep)
+    fold_enrichment_se = np.std(fe_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
+    ddct = np.mean(ddct_per_rep)
+    ddct_sem = np.std(ddct_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
 
     return {
         "ddCT": ddct,

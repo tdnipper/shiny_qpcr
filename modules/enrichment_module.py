@@ -124,11 +124,12 @@ def enrichment_server(
         rows = []
         for target in targets:
             for grp in groups:
-                ct_input = df[
+                input_rows = df[
                     (df["Target Name"] == target)
                     & (df["Group"] == grp)
                     & (df["Condition"] == input_group)
-                ]["CT"].values
+                ]
+                ct_input = input_rows["CT"].values
 
                 if len(ct_input) == 0:
                     continue
@@ -149,16 +150,36 @@ def enrichment_server(
                     ph_df = None
 
                 for ip_cond in ip_conditions:
-                    ct_ip = df[
+                    ip_rows = df[
                         (df["Target Name"] == target)
                         & (df["Group"] == grp)
                         & (df["Condition"] == ip_cond)
-                    ]["CT"].values
+                    ]
 
-                    if len(ct_ip) == 0:
+                    if ip_rows.empty:
                         continue
 
-                    result = calculate_percent_input(ct_ip, ct_input, dilution)
+                    # Pair input and IP by biological replicate when possible
+                    if "Biological Replicate" in df.columns:
+                        merged = (
+                            input_rows[["Biological Replicate", "CT"]]
+                            .rename(columns={"CT": "ct_input"})
+                            .merge(
+                                ip_rows[["Biological Replicate", "CT"]].rename(
+                                    columns={"CT": "ct_ip"}
+                                ),
+                                on="Biological Replicate",
+                            )
+                        )
+                        if merged.empty:
+                            continue
+                        ct_input_paired = merged["ct_input"].values
+                        ct_ip = merged["ct_ip"].values
+                    else:
+                        ct_input_paired = ct_input
+                        ct_ip = ip_rows["CT"].values
+
+                    result = calculate_percent_input(ct_ip, ct_input_paired, dilution)
 
                     if stat_test == "none":
                         p_val = np.nan
@@ -217,20 +238,19 @@ def enrichment_server(
         rows = []
         for target in targets:
             for grp in groups:
-                ct_input = df[
+                input_rows_fe = df[
                     (df["Target Name"] == target)
                     & (df["Group"] == grp)
                     & (df["Condition"] == input_group)
-                ]["CT"].values
+                ]
+                ct_input = input_rows_fe["CT"].values
 
-                ct_igg = df[
+                igg_rows = df[
                     (df["Target Name"] == target)
                     & (df["Group"] == grp)
                     & (df["Condition"] == igg_group)
-                ]["CT"].values
-
-                # Input for IgG normalization is the same group's input
-                ct_input_igg = ct_input
+                ]
+                ct_igg = igg_rows["CT"].values
 
                 if len(ct_input) == 0 or len(ct_igg) == 0:
                     continue
@@ -252,23 +272,53 @@ def enrichment_server(
                     ph_df = None
 
                 for ip_cond in ip_conditions:
-                    ct_ip = df[
+                    ip_rows_fe = df[
                         (df["Target Name"] == target)
                         & (df["Group"] == grp)
                         & (df["Condition"] == ip_cond)
-                    ]["CT"].values
+                    ]
 
-                    if len(ct_ip) == 0:
+                    if ip_rows_fe.empty:
                         continue
 
+                    # Three-way pair: input, IP, IgG by biological replicate
+                    if "Biological Replicate" in df.columns:
+                        merged_fe = (
+                            input_rows_fe[["Biological Replicate", "CT"]]
+                            .rename(columns={"CT": "ct_input"})
+                            .merge(
+                                ip_rows_fe[["Biological Replicate", "CT"]].rename(
+                                    columns={"CT": "ct_ip"}
+                                ),
+                                on="Biological Replicate",
+                            )
+                            .merge(
+                                igg_rows[["Biological Replicate", "CT"]].rename(
+                                    columns={"CT": "ct_igg"}
+                                ),
+                                on="Biological Replicate",
+                            )
+                        )
+                        if merged_fe.empty:
+                            continue
+                        ct_ip_paired = merged_fe["ct_ip"].values
+                        ct_input_paired_fe = merged_fe["ct_input"].values
+                        ct_igg_paired = merged_fe["ct_igg"].values
+                    else:
+                        ct_ip_paired = ip_rows_fe["CT"].values
+                        ct_input_paired_fe = ct_input
+                        ct_igg_paired = ct_igg
+
                     result = calculate_fold_enrichment(
-                        ct_ip, ct_input, ct_igg, ct_input_igg, dilution
+                        ct_ip_paired, ct_input_paired_fe,
+                        ct_igg_paired, ct_input_paired_fe,
+                        dilution,
                     )
 
                     if stat_test == "none":
                         p_val = np.nan
                     elif stat_test == "ttest":
-                        _, p_val = welch_ttest(ct_ip, ct_igg)
+                        _, p_val = welch_ttest(ct_ip_paired, ct_igg_paired)
                     else:
                         p_val = _lookup_posthoc_pval(ph_df, igg_group, ip_cond)
 
@@ -357,8 +407,6 @@ def enrichment_server(
                 ]
                 if ct_input_rows.empty:
                     continue
-                mean_input = ct_input_rows["CT"].mean()
-                adjusted_input = mean_input - adjustment
 
                 if normalize_igg and igg_group:
                     ct_igg_rows = df[
@@ -368,8 +416,6 @@ def enrichment_server(
                     ]
                     if ct_igg_rows.empty:
                         continue
-                    mean_igg_input = mean_input  # same group's input
-                    dct_igg_mean = ct_igg_rows["CT"].mean() - (mean_igg_input - adjustment)
 
                 for ip_cond in ip_conditions:
                     ip_rows = df[
@@ -381,13 +427,45 @@ def enrichment_server(
                         continue
                     row_id = f"{target}_{grp}_{ip_cond}"
                     for _, r in ip_rows.iterrows():
+                        # Look up this bio rep's own input CT
+                        bio_rep = r.get("Biological Replicate", None)
+                        if (
+                            bio_rep is not None
+                            and "Biological Replicate" in ct_input_rows.columns
+                        ):
+                            rep_input = ct_input_rows[
+                                ct_input_rows["Biological Replicate"] == bio_rep
+                            ]["CT"]
+                            input_ct = (
+                                rep_input.iloc[0]
+                                if len(rep_input) > 0
+                                else ct_input_rows["CT"].mean()
+                            )
+                        else:
+                            input_ct = ct_input_rows["CT"].mean()
+
                         if normalize_igg and igg_group:
-                            dct_ip = r["CT"] - (mean_input - adjustment)
-                            ddct = dct_ip - dct_igg_mean
+                            if (
+                                bio_rep is not None
+                                and "Biological Replicate" in ct_igg_rows.columns
+                            ):
+                                rep_igg = ct_igg_rows[
+                                    ct_igg_rows["Biological Replicate"] == bio_rep
+                                ]["CT"]
+                                igg_ct = (
+                                    rep_igg.iloc[0]
+                                    if len(rep_igg) > 0
+                                    else ct_igg_rows["CT"].mean()
+                                )
+                            else:
+                                igg_ct = ct_igg_rows["CT"].mean()
+                            dct_ip = r["CT"] - (input_ct - adjustment)
+                            dct_igg_rep = igg_ct - (input_ct - adjustment)
+                            ddct = dct_ip - dct_igg_rep
                             val = 2.0 ** -ddct
                             val_col = "fold_enrichment_rep"
                         else:
-                            val = 100.0 * (2.0 ** (adjusted_input - r["CT"]))
+                            val = 100.0 * (2.0 ** ((input_ct - adjustment) - r["CT"]))
                             val_col = "pct_input_rep"
                         rows.append({
                             "id": row_id,

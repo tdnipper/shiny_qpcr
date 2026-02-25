@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.authors="nipper@wisc.edu"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY ./requirements.txt /app/
+COPY ./pyproject.toml /app/
 COPY ./Dockerfile /app/
 COPY ./app.py /app/
 COPY ./shared.py /app/
@@ -18,7 +18,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y
 
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install .
 
 EXPOSE 8000/tcp
 

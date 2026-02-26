@@ -47,3 +47,32 @@ def calculate_ddct(results: dict, gene: str, group: str, condition: str,
     ddct = (gene_group_ct - control_gene_group_ct) - dct_control_average
 
     return ddct
+
+
+def summarize_ddct(ddct_per_rep: np.ndarray) -> dict:
+    """Summarize per-replicate ddCT values into mean, SEM, fold change, and SE.
+
+    Parameters
+    ----------
+    ddct_per_rep : array-like
+        Per-biological-replicate ddCT values from calculate_ddct().
+
+    Returns
+    -------
+    dict with keys:
+        ddct_mean, ddct_SEM, foldchange_mean, foldchange_se
+    """
+    ddct_per_rep = np.asarray(ddct_per_rep, dtype=float)
+    n = len(ddct_per_rep)
+
+    ddct_mean = np.mean(ddct_per_rep)
+    ddct_sem = np.std(ddct_per_rep, ddof=1) / np.sqrt(n) if n > 1 else 0.0
+    foldchange_mean = 2.0 ** -ddct_mean
+    foldchange_se = np.log(2) * foldchange_mean * ddct_sem
+
+    return {
+        "ddct_mean": ddct_mean,
+        "ddct_SEM": ddct_sem,
+        "foldchange_mean": foldchange_mean,
+        "foldchange_se": foldchange_se,
+    }

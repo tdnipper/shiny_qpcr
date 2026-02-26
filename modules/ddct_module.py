@@ -4,7 +4,7 @@ from shiny import module, ui, render, reactive
 from shinywidgets import output_widget, render_widget
 import plotly.express as px
 
-from calculations.ddct import calculate_ddct
+from calculations.ddct import calculate_ddct, summarize_ddct
 from shared import (
     filter_targets,
     group_ct_data,
@@ -148,23 +148,14 @@ def ddct_server(
         if df_dd is None:
             return None
 
-        stats = (
-            df_dd.groupby(["Group", "Condition", "Target Name", "id"])
-            .agg(
-                ddct_mean=("ddct", "mean"),
-                ddct_SEM=(
-                    "ddct",
-                    lambda x: np.std(x, ddof=1) / np.sqrt(len(x)) if len(x) > 1 else 0.0,
-                ),
-            )
-            .reset_index()
-        )
+        rows = []
+        for (grp, cond, target, sid), group in df_dd.groupby(
+            ["Group", "Condition", "Target Name", "id"]
+        ):
+            result = summarize_ddct(group["ddct"].values)
+            rows.append({"Group": grp, "Condition": cond, "Target Name": target, "id": sid, **result})
 
-        stats["foldchange_mean"] = 2 ** -stats["ddct_mean"]
-        stats["foldchange_se"] = (
-            np.log(2) * stats["foldchange_mean"] * stats["ddct_SEM"]
-        )
-        return stats
+        return pd.DataFrame(rows)
 
     @reactive.calc
     def foldchange_with_stats():

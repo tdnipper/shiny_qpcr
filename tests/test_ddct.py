@@ -25,19 +25,18 @@ def test_self_referential_returns_zero():
     results = _make_results(
         [20.0, 20.0], [10.0, 10.0], [20.0, 20.0], [10.0, 10.0]
     )
-    ddct, error = calculate_ddct(
+    ddct = calculate_ddct(
         results, gene="HK", group="Grp", condition="ctrl",
         control_gene="HK", control_condition="ctrl",
     )
     assert ddct == 0
-    assert error == 0
 
 
 def test_identical_cts_give_zero_ddct():
     """When all CTs are the same, ddCT should be 0."""
     ct = [20.0, 20.0, 20.0]
     results = _make_results(ct, ct, ct, ct)
-    ddct, error = calculate_ddct(
+    ddct = calculate_ddct(
         results, gene="GeneA", group="Grp", condition="exp",
         control_gene="HK", control_condition="ctrl",
     )
@@ -52,7 +51,7 @@ def test_known_ddct_values():
     ddCT = 10 - 10 = 0
     """
     results = _make_results([25.0], [15.0], [22.0], [12.0])
-    ddct, error = calculate_ddct(
+    ddct = calculate_ddct(
         results, gene="GeneA", group="Grp", condition="exp",
         control_gene="HK", control_condition="ctrl",
     )
@@ -65,7 +64,7 @@ def test_nonzero_ddct():
     ddCT = 10 - 8 = 2
     """
     results = _make_results([25.0], [15.0], [20.0], [12.0])
-    ddct, error = calculate_ddct(
+    ddct = calculate_ddct(
         results, gene="GeneA", group="Grp", condition="exp",
         control_gene="HK", control_condition="ctrl",
     )

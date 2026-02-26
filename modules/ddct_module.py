@@ -127,15 +127,13 @@ def ddct_server(
                         continue
                     key = f"{gene}_{grp}_{cond}"
                     if key in results:
-                        results[key]["ddct"], results[key]["ddct_error"] = (
-                            calculate_ddct(
-                                results=results,
-                                gene=gene,
-                                group=grp,
-                                condition=cond,
-                                control_gene=housekeeping,
-                                control_condition=control,
-                            )
+                        results[key]["ddct"] = calculate_ddct(
+                            results=results,
+                            gene=gene,
+                            group=grp,
+                            condition=cond,
+                            control_gene=housekeeping,
+                            control_condition=control,
                         )
 
         ddct_df = pd.concat(results.values()).reset_index(drop=True)
@@ -154,9 +152,9 @@ def ddct_server(
             df_dd.groupby(["Group", "Condition", "Target Name", "id"])
             .agg(
                 ddct_mean=("ddct", "mean"),
-                ddct_error=(
-                    "ddct_error",
-                    lambda x: np.sqrt(np.sum(x**2)),
+                ddct_SEM=(
+                    "ddct",
+                    lambda x: np.std(x, ddof=1) / np.sqrt(len(x)) if len(x) > 1 else 0.0,
                 ),
             )
             .reset_index()
@@ -164,7 +162,7 @@ def ddct_server(
 
         stats["foldchange_mean"] = 2 ** -stats["ddct_mean"]
         stats["foldchange_se"] = (
-            np.log(2) * stats["foldchange_mean"] * stats["ddct_error"]
+            np.log(2) * stats["foldchange_mean"] * stats["ddct_SEM"]
         )
         return stats
 

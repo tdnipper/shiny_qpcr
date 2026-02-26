@@ -3,7 +3,7 @@ import numpy as np
 
 def calculate_ddct(results: dict, gene: str, group: str, condition: str,
                    control_gene: str, control_condition: str):
-    """Compute ddCT and its propagated error for a gene/group/condition combination.
+    """Compute per-biological-replicate ddCT values for a gene/group/condition combination.
 
     Parameters
     ----------
@@ -23,13 +23,11 @@ def calculate_ddct(results: dict, gene: str, group: str, condition: str,
 
     Returns
     -------
-    ddct : float or ndarray
-        The delta-delta-Ct value(s).
-    ddct_error : float
-        Propagated SEM of the control dCT.
+    ddct : ndarray
+        Per-biological-replicate delta-delta-Ct values.
     """
     if gene == control_gene and condition == control_condition:
-        return 0, 0
+        return 0
 
     try:
         gene_group_ct = results[f"{gene}_{group}_{condition}"]["CT"].values
@@ -42,23 +40,10 @@ def calculate_ddct(results: dict, gene: str, group: str, condition: str,
             "Check if all input values exist in the data."
         )
 
-    gene_control_condition_ct_sem = (
-        np.std(gene_control_condition_ct) / np.sqrt(len(gene_control_condition_ct))
-    )
-    control_gene_control_condition_ct_sem = (
-        np.std(control_gene_control_condition_ct)
-        / np.sqrt(len(control_gene_control_condition_ct))
-    )
-
     dct_control_average = np.mean(
         gene_control_condition_ct - control_gene_control_condition_ct
     )
-    dct_control_average_sem = np.sqrt(
-        gene_control_condition_ct_sem ** 2
-        + control_gene_control_condition_ct_sem ** 2
-    )
 
     ddct = (gene_group_ct - control_gene_group_ct) - dct_control_average
-    ddct_error = dct_control_average_sem
 
-    return ddct, ddct_error
+    return ddct

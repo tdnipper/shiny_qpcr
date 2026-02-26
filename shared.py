@@ -407,6 +407,10 @@ def apply_classic_theme(fig):
             showline=True, linewidth=1, linecolor="black",
             mirror=False, showgrid=False,
         ),
+        toImageButtonOptions=dict(
+            format="png",
+            scale=3,
+        ),
     )
     return fig
 

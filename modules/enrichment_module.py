@@ -15,6 +15,7 @@ from shared import (
     export_to_excel,
     export_to_csv,
     apply_classic_theme,
+    make_plot_widget,
     _run_posthoc,
     _lookup_posthoc_pval,
     two_way_anova,
@@ -529,7 +530,7 @@ def enrichment_server(
         reps = plot_data_reps()
         summary = plot_data()
         if reps is None or reps.empty:
-            return apply_classic_theme(px.scatter(title="No data to display"))
+            return make_plot_widget(apply_classic_theme(px.scatter(title="No data to display")))
 
         normalize_igg = normalize_igg_reactive()
 
@@ -573,6 +574,6 @@ def enrichment_server(
                         showarrow=False,
                         font=dict(size=14),
                     )
-        return fig
+        return make_plot_widget(fig)
 
     return {"results": active_results}

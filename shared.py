@@ -407,12 +407,21 @@ def apply_classic_theme(fig):
             showline=True, linewidth=1, linecolor="black",
             mirror=False, showgrid=False,
         ),
-        toImageButtonOptions=dict(
-            format="png",
-            scale=3,
-        ),
     )
     return fig
+
+
+def make_plot_widget(fig):
+    """Convert a Plotly Figure to a FigureWidget with high-res download config.
+
+    Must be called within a Shiny session (i.e. inside a @render_widget function).
+    shinywidgets passes Widget instances through unchanged, so setting _config here
+    ensures toImageButtonOptions reaches Plotly.js in the browser.
+    """
+    import plotly.graph_objects as go
+    fw = go.FigureWidget(fig.data, fig.layout)
+    fw._config = {**fw._config, "toImageButtonOptions": {"format": "png", "scale": 3}}
+    return fw
 
 
 # ---------------------------------------------------------------------------

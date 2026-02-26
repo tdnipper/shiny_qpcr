@@ -14,6 +14,7 @@ from shared import (
     export_to_excel,
     export_to_csv,
     apply_classic_theme,
+    make_plot_widget,
     _run_posthoc,
     _lookup_posthoc_pval,
     two_way_anova,
@@ -354,7 +355,7 @@ def ddct_server(
         reps = plot_data_foldchange_reps()
         summary = plot_data_foldchange()
         if reps is None or reps.empty:
-            return apply_classic_theme(px.scatter(title="No data to display"))
+            return make_plot_widget(apply_classic_theme(px.scatter(title="No data to display")))
 
         fig = px.strip(
             reps,
@@ -382,13 +383,13 @@ def ddct_server(
                         showarrow=False,
                         font=dict(size=14),
                     )
-        return fig
+        return make_plot_widget(fig)
 
     @render_widget
     def ddct_plot():
         data = plot_data_ddct()
         if data is None or data.empty:
-            return apply_classic_theme(px.scatter(title="No data to display"))
+            return make_plot_widget(apply_classic_theme(px.scatter(title="No data to display")))
 
         fig = px.strip(
             data,
@@ -404,7 +405,7 @@ def ddct_server(
             showlegend=False,
         )
         apply_classic_theme(fig)
-        return fig
+        return make_plot_widget(fig)
 
     # Expose results for parent access
     return {"foldchange": foldchange_with_stats, "ddct_full": ddct_results}
